@@ -1,0 +1,52 @@
+server:
+  host: localhost
+  port: 8080
+  mode: debug
+  read_timeout: 10s
+  write_timeout: 10s
+  idle_timeout: 60s
+
+database:
+  host: 192.168.64.23
+  port: 30432
+  user: mem_bank_user
+  password: mem_bank_password
+  dbname: mem_bank
+  sslmode: disable
+  max_open_conns: 25
+  max_idle_conns: 5
+  max_lifetime: 5m
+
+redis:
+  host: 192.168.64.23
+  port: 30379
+  password: ""
+  db: 0
+  pool_size: 10
+  timeout: 5s
+
+logging:
+  level: info
+  format: json
+  output: stdout
+  max_size: 100
+  max_backups: 3
+  max_age: 28
+  compress: true
+
+ai:
+  embedding_model: text-embedding-ada-002
+  embedding_dim: 1536
+  default_threshold: 0.8
+  max_context_length: 4000
+  default_importance: 5
+  auto_summary: true
+
+security:
+  jwt_secret: ${JWT_SECRET}
+  jwt_expiry: 24h
+  bcrypt_cost: 12
+  rate_limit: 100
+  allowed_origins:
+    - "http://localhost:3000"
+    - "http://localhost:8080"

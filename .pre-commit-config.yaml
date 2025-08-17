@@ -1,0 +1,70 @@
+# Pre-commit hooks configuration
+# Install with: pip install pre-commit && pre-commit install
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.4.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-added-large-files
+        args: ['--maxkb=1000']
+      - id: check-merge-conflict
+      - id: detect-private-key
+      - id: detect-aws-credentials
+
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.4.0
+    hooks:
+      - id: detect-secrets
+        args: ['--baseline', '.secrets.baseline']
+        exclude: |
+          (?x)^(
+            .*\.example\..*|
+            .*\.template\..*|
+            go\.sum|
+            \.secrets\.baseline
+          )$
+
+  - repo: https://github.com/gitguardian/ggshield
+    rev: v1.25.0
+    hooks:
+      - id: ggshield
+        language: python
+        stages: [commit]
+
+  - repo: local
+    hooks:
+      - id: go-fmt
+        name: go fmt
+        entry: gofmt -w .
+        language: system
+        types: [go]
+        
+      - id: go-vet
+        name: go vet
+        entry: go vet ./...
+        language: system
+        types: [go]
+        pass_filenames: false
+        
+      - id: go-mod-tidy
+        name: go mod tidy
+        entry: go mod tidy
+        language: system
+        types: [go]
+        pass_filenames: false
+
+      - id: check-secrets
+        name: Check for secrets
+        entry: scripts/check-secrets.sh
+        language: script
+        types: [yaml, json, text]
+
+      - id: check-k8s-secrets
+        name: Check Kubernetes secrets
+        entry: bash -c 'if git diff --cached --name-only | grep -E "\.(yaml|yml)$" | xargs grep -l "kind.*Secret" 2>/dev/null; then echo "❌ Kubernetes Secret files should not be committed. Use .example files instead."; exit 1; fi'
+        language: system
+        pass_filenames: false

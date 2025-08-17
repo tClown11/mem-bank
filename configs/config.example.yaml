@@ -1,0 +1,52 @@
+server:
+  host: localhost
+  port: 8080
+  mode: debug
+  read_timeout: 10s
+  write_timeout: 10s
+  idle_timeout: 60s
+
+database:
+  host: ${DB_HOST:localhost}
+  port: ${DB_PORT:5432}
+  user: ${DB_USER:mem_bank_user}
+  password: ${DB_PASSWORD:change_me}
+  dbname: ${DB_NAME:mem_bank}
+  sslmode: ${DB_SSL_MODE:disable}
+  max_open_conns: 25
+  max_idle_conns: 5
+  max_lifetime: 5m
+
+redis:
+  host: ${REDIS_HOST:localhost}
+  port: ${REDIS_PORT:6379}
+  password: ${REDIS_PASSWORD:}
+  db: ${REDIS_DB:0}
+  pool_size: 10
+  timeout: 5s
+
+logging:
+  level: ${LOG_LEVEL:info}
+  format: ${LOG_FORMAT:json}
+  output: stdout
+  max_size: 100
+  max_backups: 3
+  max_age: 28
+  compress: true
+
+ai:
+  embedding_model: ${EMBEDDING_MODEL:text-embedding-ada-002}
+  embedding_dim: 1536
+  default_threshold: 0.8
+  max_context_length: 4000
+  default_importance: 5
+  auto_summary: true
+
+security:
+  jwt_secret: ${JWT_SECRET:change_this_in_production}
+  jwt_expiry: 24h
+  bcrypt_cost: ${BCRYPT_COST:12}
+  rate_limit: 100
+  allowed_origins:
+    - "http://localhost:3000"
+    - "http://localhost:8080"
