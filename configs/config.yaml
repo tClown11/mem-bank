@@ -1,52 +1,53 @@
 server:
-  host: localhost
-  port: 8080
-  mode: debug
+  host: ${SERVER_HOST:localhost}
+  port: ${SERVER_PORT:8080}
+  mode: ${SERVER_MODE:debug}
   read_timeout: 10s
   write_timeout: 10s
   idle_timeout: 60s
 
 database:
-  host: 192.168.64.23
-  port: 30432
-  user: mem_bank_user
-  password: mem_bank_password
-  dbname: mem_bank
-  sslmode: disable
-  max_open_conns: 25
-  max_idle_conns: 5
-  max_lifetime: 5m
+  host: ${DB_HOST:localhost}
+  port: ${DB_PORT:5432}
+  user: ${DB_USER:mem_bank_user}
+  password: ${DB_PASSWORD:mem_bank_password}
+  dbname: ${DB_NAME:mem_bank}
+  sslmode: ${DB_SSL_MODE:disable}
+  max_open_conns: ${DB_MAX_OPEN_CONNS:25}
+  max_idle_conns: ${DB_MAX_IDLE_CONNS:5}
+  max_lifetime: ${DB_MAX_LIFETIME:5m}
 
 redis:
-  host: 192.168.64.23
-  port: 30379
-  password: ""
-  db: 0
-  pool_size: 10
-  timeout: 5s
+  host: ${REDIS_HOST:localhost}
+  port: ${REDIS_PORT:6379}
+  password: ${REDIS_PASSWORD:}
+  db: ${REDIS_DB:0}
+  pool_size: ${REDIS_POOL_SIZE:10}
+  timeout: ${REDIS_TIMEOUT:5s}
 
 logging:
-  level: info
-  format: json
-  output: stdout
-  max_size: 100
-  max_backups: 3
-  max_age: 28
-  compress: true
+  level: ${LOG_LEVEL:info}
+  format: ${LOG_FORMAT:json}
+  output: ${LOG_OUTPUT:stdout}
+  max_size: ${LOG_MAX_SIZE:100}
+  max_backups: ${LOG_MAX_BACKUPS:3}
+  max_age: ${LOG_MAX_AGE:28}
+  compress: ${LOG_COMPRESS:true}
 
 ai:
-  embedding_model: text-embedding-ada-002
-  embedding_dim: 1536
-  default_threshold: 0.8
-  max_context_length: 4000
-  default_importance: 5
-  auto_summary: true
+  embedding_model: ${EMBEDDING_MODEL:text-embedding-ada-002}
+  embedding_dim: ${EMBEDDING_DIM:1536}
+  default_threshold: ${AI_DEFAULT_THRESHOLD:0.8}
+  max_context_length: ${AI_MAX_CONTEXT_LENGTH:4000}
+  default_importance: ${AI_DEFAULT_IMPORTANCE:5}
+  auto_summary: ${AI_AUTO_SUMMARY:true}
 
 security:
-  jwt_secret: ${JWT_SECRET}
-  jwt_expiry: 24h
-  bcrypt_cost: 12
-  rate_limit: 100
+  jwt_secret: ${JWT_SECRET:change-this-secret-in-production}
+  jwt_expiry: ${JWT_EXPIRY:24h}
+  bcrypt_cost: ${BCRYPT_COST:12}
+  rate_limit: ${RATE_LIMIT:100}
   allowed_origins:
-    - "http://localhost:3000"
-    - "http://localhost:8080"
+    - ${ALLOWED_ORIGIN_1:http://localhost:3000}
+    - ${ALLOWED_ORIGIN_2:http://localhost:8080}
+    - ${ALLOWED_ORIGIN_3:http://127.0.0.1:3000}

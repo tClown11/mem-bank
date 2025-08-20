@@ -74,8 +74,8 @@ docker-compose.override.yml
 docker-compose.local.yml
 
 # Kubernetes secrets and local configs
-deploy/*.local.yaml
-deploy/secrets/
+scripts/*.local.yaml
+scripts/secrets/
 *.secret.yaml
 *-secret.yaml
 
