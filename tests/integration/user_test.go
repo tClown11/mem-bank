@@ -1,23 +1,23 @@
 package integration
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 
-	"mem_bank/internal/domain"
-	"mem_bank/internal/repository"
-	"mem_bank/internal/usecase"
+	"mem_bank/internal/domain/user"
+	userDao "mem_bank/internal/dao/user"
+	userService "mem_bank/internal/service/user"
 	"mem_bank/tests/testutil"
 )
 
 type UserTestSuite struct {
 	suite.Suite
 	db          *testutil.TestDB
-	userRepo    domain.UserRepository
-	memoryRepo  domain.MemoryRepository
-	userUsecase usecase.UserUsecase
+	userService user.Service
+	ctx         context.Context
 }
 
 func (suite *UserTestSuite) SetupSuite() {
@@ -27,9 +27,10 @@ func (suite *UserTestSuite) SetupSuite() {
 	}
 	suite.db = db
 
-	suite.userRepo = repository.NewUserRepository(db.Pool)
-	suite.memoryRepo = repository.NewMemoryRepository(db.Pool)
-	suite.userUsecase = usecase.NewUserUsecase(suite.userRepo, suite.memoryRepo)
+	// Initialize service with new architecture
+	userRepo := userDao.NewPostgresRepository(db.GormDB)
+	suite.userService = userService.NewService(userRepo)
+	suite.ctx = context.Background()
 }
 
 func (suite *UserTestSuite) TearDownSuite() {
@@ -43,71 +44,71 @@ func (suite *UserTestSuite) SetupTest() {
 }
 
 func (suite *UserTestSuite) TestCreateUser() {
-	req := &domain.UserCreateRequest{
+	req := user.CreateRequest{
 		Username: "testuser",
 		Email:    "test@example.com",
-		Profile: domain.UserProfile{
+		Profile: user.Profile{
 			FirstName: "Test",
 			LastName:  "User",
 		},
-		Settings: domain.UserSettings{
+		Settings: user.Settings{
 			Language: "en",
 			Timezone: "UTC",
 		},
 	}
 
-	user, err := suite.userUsecase.CreateUser(req)
+	u, err := suite.userService.CreateUser(suite.ctx, req)
 
 	assert.NoError(suite.T(), err)
-	assert.NotNil(suite.T(), user)
-	assert.Equal(suite.T(), req.Username, user.Username)
-	assert.Equal(suite.T(), req.Email, user.Email)
-	assert.True(suite.T(), user.IsActive)
+	assert.NotNil(suite.T(), u)
+	assert.Equal(suite.T(), req.Username, u.Username)
+	assert.Equal(suite.T(), req.Email, u.Email)
+	assert.True(suite.T(), u.IsActive)
 }
 
 func (suite *UserTestSuite) TestCreateUserDuplicate() {
-	req := &domain.UserCreateRequest{
+	req := user.CreateRequest{
 		Username: "testuser",
 		Email:    "test@example.com",
 	}
 
-	_, err := suite.userUsecase.CreateUser(req)
+	_, err := suite.userService.CreateUser(suite.ctx, req)
 	assert.NoError(suite.T(), err)
 
-	_, err = suite.userUsecase.CreateUser(req)
-	assert.Equal(suite.T(), domain.ErrUserAlreadyExists, err)
+	_, err = suite.userService.CreateUser(suite.ctx, req)
+	assert.Equal(suite.T(), user.ErrUsernameTaken, err)
 }
 
 func (suite *UserTestSuite) TestGetUserByID() {
-	req := &domain.UserCreateRequest{
+	req := user.CreateRequest{
 		Username: "testuser",
 		Email:    "test@example.com",
 	}
 
-	createdUser, err := suite.userUsecase.CreateUser(req)
+	createdUser, err := suite.userService.CreateUser(suite.ctx, req)
 	assert.NoError(suite.T(), err)
 
-	user, err := suite.userUsecase.GetUserByID(createdUser.ID)
+	u, err := suite.userService.GetUser(suite.ctx, createdUser.ID)
 	assert.NoError(suite.T(), err)
-	assert.Equal(suite.T(), createdUser.ID, user.ID)
-	assert.Equal(suite.T(), createdUser.Username, user.Username)
+	assert.Equal(suite.T(), createdUser.ID, u.ID)
+	assert.Equal(suite.T(), createdUser.Username, u.Username)
 }
 
 func (suite *UserTestSuite) TestUpdateUser() {
-	req := &domain.UserCreateRequest{
+	req := user.CreateRequest{
 		Username: "testuser",
 		Email:    "test@example.com",
 	}
 
-	createdUser, err := suite.userUsecase.CreateUser(req)
+	createdUser, err := suite.userService.CreateUser(suite.ctx, req)
 	assert.NoError(suite.T(), err)
 
 	newUsername := "updateduser"
-	updateReq := &domain.UserUpdateRequest{
+	updateReq := user.UpdateRequest{
 		Username: &newUsername,
 	}
 
-	updatedUser, err := suite.userUsecase.UpdateUser(createdUser.ID, updateReq)
+	updatedUser, err := suite.userService.UpdateUser(suite.ctx, createdUser.ID, updateReq)
 	assert.NoError(suite.T(), err)
 	assert.Equal(suite.T(), newUsername, updatedUser.Username)
 }

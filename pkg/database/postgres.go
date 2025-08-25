@@ -57,6 +57,6 @@ func (db *PostgresDB) Close() {
 func (db *PostgresDB) Health() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	
+
 	return db.Pool.Ping(ctx)
 }

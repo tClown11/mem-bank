@@ -7,12 +7,14 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"gorm.io/gorm"
 	"mem_bank/configs"
 	"mem_bank/pkg/database"
 )
 
 type TestDB struct {
 	Pool   *pgxpool.Pool
+	GormDB *gorm.DB
 	config *configs.DatabaseConfig
 }
 
@@ -29,13 +31,22 @@ func SetupTestDB() (*TestDB, error) {
 		MaxLifetime:  5 * time.Minute,
 	}
 
-	db, err := database.NewPostgresConnection(config)
+	// Setup pgx connection for schema creation
+	pgxDB, err := database.NewPostgresConnection(config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to test database: %w", err)
 	}
 
+	// Setup GORM connection for repositories
+	gormDB, err := database.NewGormConnection(config)
+	if err != nil {
+		pgxDB.Close()
+		return nil, fmt.Errorf("failed to connect to GORM test database: %w", err)
+	}
+
 	testDB := &TestDB{
-		Pool:   db.Pool,
+		Pool:   pgxDB.Pool,
+		GormDB: gormDB.DB,
 		config: config,
 	}
 
@@ -111,6 +122,12 @@ func (db *TestDB) CleanupTables() error {
 func (db *TestDB) Close() {
 	if db.Pool != nil {
 		db.Pool.Close()
+	}
+	if db.GormDB != nil {
+		sqlDB, err := db.GormDB.DB()
+		if err == nil {
+			sqlDB.Close()
+		}
 	}
 }
 

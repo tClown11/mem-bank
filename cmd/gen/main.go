@@ -35,7 +35,7 @@ func main() {
 
 	// Apply custom methods to User model
 	user := g.GenerateModel("users", gen.FieldType("last_login", "*time.Time"))
-	memory := g.GenerateModel("memories", 
+	memory := g.GenerateModel("memories",
 		gen.FieldType("last_login", "*time.Time"),
 		gen.FieldIgnore("embedding")) // Skip embedding field for now
 

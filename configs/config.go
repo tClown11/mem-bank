@@ -27,14 +27,14 @@ type ServerConfig struct {
 }
 
 type DatabaseConfig struct {
-	Host         string `mapstructure:"host"`
-	Port         int    `mapstructure:"port"`
-	User         string `mapstructure:"user"`
-	Password     string `mapstructure:"password"`
-	DBName       string `mapstructure:"dbname"`
-	SSLMode      string `mapstructure:"sslmode"`
-	MaxOpenConns int    `mapstructure:"max_open_conns"`
-	MaxIdleConns int    `mapstructure:"max_idle_conns"`
+	Host         string        `mapstructure:"host"`
+	Port         int           `mapstructure:"port"`
+	User         string        `mapstructure:"user"`
+	Password     string        `mapstructure:"password"`
+	DBName       string        `mapstructure:"dbname"`
+	SSLMode      string        `mapstructure:"sslmode"`
+	MaxOpenConns int           `mapstructure:"max_open_conns"`
+	MaxIdleConns int           `mapstructure:"max_idle_conns"`
 	MaxLifetime  time.Duration `mapstructure:"max_lifetime"`
 }
 
@@ -67,11 +67,11 @@ type AIConfig struct {
 }
 
 type SecurityConfig struct {
-	JWTSecret     string        `mapstructure:"jwt_secret"`
-	JWTExpiry     time.Duration `mapstructure:"jwt_expiry"`
-	BCryptCost    int           `mapstructure:"bcrypt_cost"`
-	RateLimit     int           `mapstructure:"rate_limit"`
-	AllowedOrigins []string     `mapstructure:"allowed_origins"`
+	JWTSecret      string        `mapstructure:"jwt_secret"`
+	JWTExpiry      time.Duration `mapstructure:"jwt_expiry"`
+	BCryptCost     int           `mapstructure:"bcrypt_cost"`
+	RateLimit      int           `mapstructure:"rate_limit"`
+	AllowedOrigins []string      `mapstructure:"allowed_origins"`
 }
 
 func LoadConfig(configPath string) (*Config, error) {
@@ -125,10 +125,10 @@ func setDefaults(config *Config) {
 	}
 
 	if config.Database.Host == "" {
-		config.Database.Host = "localhost"
+		config.Database.Host = "192.168.64.23"
 	}
 	if config.Database.Port == 0 {
-		config.Database.Port = 5432
+		config.Database.Port = 30432
 	}
 	if config.Database.SSLMode == "" {
 		config.Database.SSLMode = "disable"
@@ -141,6 +141,19 @@ func setDefaults(config *Config) {
 	}
 	if config.Database.MaxLifetime == 0 {
 		config.Database.MaxLifetime = 5 * time.Minute
+	}
+
+	if config.Redis.Host == "" {
+		config.Redis.Host = "192.168.64.23"
+	}
+	if config.Redis.Port == 0 {
+		config.Redis.Port = 30379
+	}
+	if config.Redis.PoolSize == 0 {
+		config.Redis.PoolSize = 10
+	}
+	if config.Redis.Timeout == 0 {
+		config.Redis.Timeout = 5 * time.Second
 	}
 
 	if config.Logging.Level == "" {
