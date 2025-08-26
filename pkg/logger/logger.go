@@ -8,11 +8,36 @@ import (
 	"mem_bank/configs"
 )
 
-type Logger struct {
+// Logger interface defines the logging contract
+type Logger interface {
+	Debug(args ...interface{})
+	Info(args ...interface{})
+	Warn(args ...interface{})
+	Error(args ...interface{})
+	Fatal(args ...interface{})
+	
+	Debugf(format string, args ...interface{})
+	Infof(format string, args ...interface{})
+	Warnf(format string, args ...interface{})
+	Errorf(format string, args ...interface{})
+	Fatalf(format string, args ...interface{})
+	
+	WithField(key string, value interface{}) Logger
+	WithFields(fields map[string]interface{}) Logger
+	WithError(err error) Logger
+}
+
+// LogrusLogger implements the Logger interface using logrus
+type LogrusLogger struct {
 	*logrus.Logger
 }
 
-func NewLogger(config *configs.LoggingConfig) (*Logger, error) {
+// LogrusEntry wraps logrus.Entry to implement Logger interface
+type LogrusEntry struct {
+	*logrus.Entry
+}
+
+func NewLogger(config *configs.LoggingConfig) (Logger, error) {
 	log := logrus.New()
 
 	level, err := logrus.ParseLevel(config.Level)
@@ -52,17 +77,31 @@ func NewLogger(config *configs.LoggingConfig) (*Logger, error) {
 	}
 	log.SetOutput(output)
 
-	return &Logger{Logger: log}, nil
+	return &LogrusLogger{Logger: log}, nil
 }
 
-func (l *Logger) WithFields(fields map[string]interface{}) *logrus.Entry {
-	return l.Logger.WithFields(fields)
+// LogrusLogger methods
+func (l *LogrusLogger) WithFields(fields map[string]interface{}) Logger {
+	return &LogrusEntry{Entry: l.Logger.WithFields(fields)}
 }
 
-func (l *Logger) WithError(err error) *logrus.Entry {
-	return l.Logger.WithError(err)
+func (l *LogrusLogger) WithError(err error) Logger {
+	return &LogrusEntry{Entry: l.Logger.WithError(err)}
 }
 
-func (l *Logger) WithField(key string, value interface{}) *logrus.Entry {
-	return l.Logger.WithField(key, value)
+func (l *LogrusLogger) WithField(key string, value interface{}) Logger {
+	return &LogrusEntry{Entry: l.Logger.WithField(key, value)}
+}
+
+// LogrusEntry methods
+func (e *LogrusEntry) WithFields(fields map[string]interface{}) Logger {
+	return &LogrusEntry{Entry: e.Entry.WithFields(fields)}
+}
+
+func (e *LogrusEntry) WithError(err error) Logger {
+	return &LogrusEntry{Entry: e.Entry.WithError(err)}
+}
+
+func (e *LogrusEntry) WithField(key string, value interface{}) Logger {
+	return &LogrusEntry{Entry: e.Entry.WithField(key, value)}
 }

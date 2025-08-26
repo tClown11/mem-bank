@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/lib/pq"
+	"github.com/pgvector/pgvector-go"
 	"gorm.io/gorm"
 
 	"mem_bank/internal/domain/memory"
@@ -110,9 +111,39 @@ func (r *postgresRepository) Delete(ctx context.Context, id memory.ID) error {
 }
 
 func (r *postgresRepository) SearchSimilar(ctx context.Context, embedding []float32, userID user.ID, limit int, threshold float64) ([]*memory.Memory, error) {
-	// TODO: Implement vector similarity search once embedding support is added
-	// For now, return empty results
-	return []*memory.Memory{}, nil
+	if len(embedding) == 0 {
+		return []*memory.Memory{}, nil
+	}
+
+	// Convert float32 slice to pgvector.Vector
+	vec := pgvector.NewVector(embedding)
+	
+	// Query for similar vectors using cosine similarity
+	// We use 1 - (embedding <=> ?) as similarity score (higher is more similar)
+	// and filter by threshold (similarity >= threshold means 1 - cosine_distance >= threshold)
+	var gormMemories []*model.Memory
+	
+	query := r.db.WithContext(ctx).
+		Where("user_id = ? AND embedding IS NOT NULL", userID.String()).
+		Where("1 - (embedding <=> ?) >= ?", vec, threshold).
+		Order(gorm.Expr("embedding <=> ?", vec)). // Order by cosine distance (ascending = most similar first)
+		Limit(limit)
+	
+	err := query.Find(&gormMemories).Error
+	if err != nil {
+		return nil, fmt.Errorf("searching similar memories: %w", err)
+	}
+
+	memories := make([]*memory.Memory, 0, len(gormMemories))
+	for _, gormMemory := range gormMemories {
+		m, err := r.toDomain(gormMemory)
+		if err != nil {
+			return nil, fmt.Errorf("converting memory: %w", err)
+		}
+		memories = append(memories, m)
+	}
+
+	return memories, nil
 }
 
 func (r *postgresRepository) SearchByContent(ctx context.Context, query string, userID user.ID, limit, offset int) ([]*memory.Memory, error) {
@@ -269,6 +300,11 @@ func (r *postgresRepository) toModel(m *memory.Memory) (*model.Memory, error) {
 		AccessCount:  intPtr(int32(m.AccessCount)),
 	}
 
+	// Convert embedding to pgvector format if present
+	if len(m.Embedding) > 0 {
+		gormMemory.Embedding = pgvector.NewVector(m.Embedding)
+	}
+
 	return gormMemory, nil
 }
 
@@ -331,6 +367,15 @@ func (r *postgresRepository) toDomain(gormMemory *model.Memory) (*memory.Memory,
 
 	if gormMemory.AccessCount != nil {
 		m.AccessCount = int(*gormMemory.AccessCount)
+	}
+
+	// Convert pgvector.Vector to []float32 if present
+	vectorSlice := gormMemory.Embedding.Slice()
+	if len(vectorSlice) > 0 {
+		m.Embedding = make([]float32, len(vectorSlice))
+		for i, v := range vectorSlice {
+			m.Embedding[i] = float32(v)
+		}
 	}
 
 	return m, nil

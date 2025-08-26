@@ -9,12 +9,16 @@ import (
 )
 
 type Config struct {
-	Server   ServerConfig   `mapstructure:"server"`
-	Database DatabaseConfig `mapstructure:"database"`
-	Redis    RedisConfig    `mapstructure:"redis"`
-	Logging  LoggingConfig  `mapstructure:"logging"`
-	AI       AIConfig       `mapstructure:"ai"`
-	Security SecurityConfig `mapstructure:"security"`
+	Server    ServerConfig    `mapstructure:"server"`
+	Database  DatabaseConfig  `mapstructure:"database"`
+	Redis     RedisConfig     `mapstructure:"redis"`
+	Logging   LoggingConfig   `mapstructure:"logging"`
+	AI        AIConfig        `mapstructure:"ai"`
+	Security  SecurityConfig  `mapstructure:"security"`
+	LLM       LLMConfig       `mapstructure:"llm"`
+	Queue     QueueConfig     `mapstructure:"queue"`
+	Embedding EmbeddingConfig `mapstructure:"embedding"`
+	Qdrant    QdrantConfig    `mapstructure:"qdrant"`
 }
 
 type ServerConfig struct {
@@ -72,6 +76,52 @@ type SecurityConfig struct {
 	BCryptCost     int           `mapstructure:"bcrypt_cost"`
 	RateLimit      int           `mapstructure:"rate_limit"`
 	AllowedOrigins []string      `mapstructure:"allowed_origins"`
+}
+
+type LLMConfig struct {
+	Provider         string        `mapstructure:"provider"`
+	APIKey           string        `mapstructure:"api_key"`
+	BaseURL          string        `mapstructure:"base_url"`
+	EmbeddingModel   string        `mapstructure:"embedding_model"`
+	CompletionModel  string        `mapstructure:"completion_model"`
+	TimeoutSeconds   int           `mapstructure:"timeout_seconds"`
+	MaxRetries       int           `mapstructure:"max_retries"`
+	RateLimit        int           `mapstructure:"rate_limit"`
+}
+
+type QueueConfig struct {
+	QueueName           string        `mapstructure:"queue_name"`
+	MaxRetries          int           `mapstructure:"max_retries"`
+	RetryDelay          time.Duration `mapstructure:"retry_delay"`
+	JobTimeout          time.Duration `mapstructure:"job_timeout"`
+	ResultTTL           time.Duration `mapstructure:"result_ttl"`
+	DefaultConcurrency  int           `mapstructure:"default_concurrency"`
+	PollInterval        time.Duration `mapstructure:"poll_interval"`
+	CleanupInterval     time.Duration `mapstructure:"cleanup_interval"`
+	StatsEnabled        bool          `mapstructure:"stats_enabled"`
+	StatsUpdateInterval time.Duration `mapstructure:"stats_update_interval"`
+}
+
+type EmbeddingConfig struct {
+	MaxTextLength       int  `mapstructure:"max_text_length"`
+	CacheEnabled        bool `mapstructure:"cache_enabled"`
+	CacheTTLMinutes     int  `mapstructure:"cache_ttl_minutes"`
+	BatchSize           int  `mapstructure:"batch_size"`
+	NormalizeWhitespace bool `mapstructure:"normalize_whitespace"`
+	ToLowercase         bool `mapstructure:"to_lowercase"`
+	RemoveExtraPunctuation bool `mapstructure:"remove_extra_punctuation"`
+	ChunkSize           int  `mapstructure:"chunk_size"`
+	ChunkOverlap        int  `mapstructure:"chunk_overlap"`
+}
+
+type QdrantConfig struct {
+	Host           string `mapstructure:"host"`
+	Port           int    `mapstructure:"port"`
+	CollectionName string `mapstructure:"collection_name"`
+	VectorSize     int    `mapstructure:"vector_size"`
+	UseHTTPS       bool   `mapstructure:"use_https"`
+	APIKey         string `mapstructure:"api_key"`
+	Enabled        bool   `mapstructure:"enabled"`
 }
 
 func LoadConfig(configPath string) (*Config, error) {
