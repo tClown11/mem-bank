@@ -1,576 +1,897 @@
-# RFC: AI记忆系统第一阶段MVP设计
+# Stage 1: MVP核心功能设计方案
 
-**文档版本**: 1.0  
-**创建日期**: 2025-08-17  
-**作者**: AI记忆系统团队  
-**状态**: 草案
+## 阶段目标
 
-## 1. 摘要
+Stage 1专注于建立一个可工作的记忆存储和检索MVP系统，基于现有的Go项目结构进行渐进式改进。这个阶段的目标是创建一个基础但完整的记忆银行，能够存储、检索和管理用户记忆。
 
-本文档描述AI记忆系统第一阶段最小可行产品(MVP)的详细设计。该阶段专注于建立核心基础架构，包括领域模型、配置管理、数据存储层和基础API功能。采用Clean Architecture原则，为后续阶段的智能化功能奠定坚实基础。
+### 核心功能范围
 
-## 2. 引言
+1. **基础记忆存储**：完善现有的记忆实体存储功能
+2. **向量搜索**：集成pgvector实现语义搜索
+3. **REST API**：提供完整的HTTP接口供外部调用
+4. **嵌入服务**：集成BGE-M3模型生成向量嵌入
+5. **基础测试**：确保功能正确性和稳定性
 
-### 2.1 目标
+## 系统架构设计
 
-- 建立可扩展的项目基础架构
-- 实现基础的记忆CRUD操作
-- 集成PostgreSQL+pgvector作为主要存储后端
-- 提供RESTful API接口
-- 实现基础的LLM集成能力
-
-### 2.2 范围
-
-第一阶段包含以下功能：
-- 核心领域模型定义
-- 配置管理系统
-- PostgreSQL数据库集成
-- 基础HTTP API
-- 简单的向量嵌入生成
-
-### 2.3 术语
-
-- **MVP**: 最小可行产品
-- **Clean Architecture**: 整洁架构模式
-- **pgvector**: PostgreSQL向量扩展
-- **Repository Pattern**: 仓库模式
-- **Domain-Driven Design**: 领域驱动设计
-
-## 3. 系统架构
-
-### 3.1 整体架构
+### Stage 1架构图
 
 ```mermaid
 graph TB
-    subgraph "外部客户端"
-        A[AI Agent]
-        B[Web Client]
+    subgraph "外部客户端 External Clients"
+        CLIENT[AI应用客户端<br/>AI Application Client]
+        POSTMAN[API测试工具<br/>Postman/curl]
     end
     
-    subgraph "API层"
-        C[Gin Router]
-        D[HTTP Handlers]
+    subgraph "MCP API层 MCP API Layer"
+        API[Memory API<br/>Gin HTTP Server]
+        MIDDLEWARE[中间件层<br/>Auth, Logging, Validation]
     end
     
-    subgraph "业务逻辑层"
-        E[Memory Usecase]
-        F[Domain Services]
+    subgraph "业务服务层 Business Service Layer"
+        MEMORY_SVC[记忆服务<br/>Memory Service]
+        EMBEDDING_SVC[嵌入服务<br/>Embedding Service]
+        USER_SVC[用户服务<br/>User Service]
     end
     
-    subgraph "数据访问层"
-        G[Memory Repository Interface]
-        H[PostgreSQL Repository Impl]
+    subgraph "数据访问层 Data Access Layer"
+        MEMORY_REPO[记忆仓储<br/>Memory Repository]
+        USER_REPO[用户仓储<br/>User Repository]
     end
     
-    subgraph "基础设施层"
-        I[PostgreSQL Database]
-        J[pgvector Extension]
-        K[Configuration]
-        L[Logger]
+    subgraph "存储层 Storage Layer"
+        PG[(PostgreSQL<br/>+pgvector<br/>主要存储)]
+        REDIS[(Redis<br/>缓存)]
     end
     
-    subgraph "外部服务"
-        M[LLM Provider]
+    subgraph "AI模型层 AI Model Layer"
+        BGE[BGE-M3<br/>嵌入模型<br/>HTTP服务]
     end
     
-    A --> C
-    B --> C
-    C --> D
-    D --> E
-    E --> G
-    G --> H
-    H --> I
-    I --> J
-    E --> M
+    %% 请求流
+    CLIENT --> API
+    POSTMAN --> API
+    API --> MIDDLEWARE
+    MIDDLEWARE --> MEMORY_SVC
+    MIDDLEWARE --> USER_SVC
     
-    style E fill:#e1f5fe
-    style G fill:#f3e5f5
-    style K fill:#fff3e0
+    %% 服务调用
+    MEMORY_SVC --> EMBEDDING_SVC
+    MEMORY_SVC --> MEMORY_REPO
+    USER_SVC --> USER_REPO
+    
+    %% 数据访问
+    MEMORY_REPO --> PG
+    MEMORY_REPO --> REDIS
+    USER_REPO --> PG
+    
+    %% AI服务
+    EMBEDDING_SVC --> BGE
+    
+    %% 样式
+    style API fill:#87CEEB
+    style MEMORY_SVC fill:#90EE90
+    style EMBEDDING_SVC fill:#FFE4B5
+    style PG fill:#DDA0DD
+    style BGE fill:#F0E68C
 ```
 
-### 3.2 分层架构详解
+## 数据模型设计
 
-#### 3.2.1 API层 (Delivery Layer)
-- **职责**: 处理HTTP请求，路由分发，数据验证
-- **技术**: Gin框架
-- **输入**: HTTP请求
-- **输出**: JSON响应
+### 增强的记忆实体
 
-#### 3.2.2 业务逻辑层 (Use Case Layer)  
-- **职责**: 核心业务逻辑实现，用例编排
-- **技术**: Go接口和结构体
-- **依赖**: Repository接口，Domain模型
-
-#### 3.2.3 数据访问层 (Repository Layer)
-- **职责**: 数据持久化抽象
-- **技术**: PostgreSQL + pgvector
-- **模式**: Repository Pattern
-
-#### 3.2.4 基础设施层 (Infrastructure Layer)
-- **职责**: 外部依赖，配置，日志
-- **技术**: Viper, logrus, pgx
-
-## 4. 详细设计
-
-### 4.1 领域模型
-
-#### 4.1.1 核心实体
+基于现有的Memory实体，增加向量搜索所需的字段：
 
 ```go
-// Memory 记忆实体
+// internal/domain/memory/entity.go (增强版本)
+package memory
+
+import (
+    "time"
+    "github.com/google/uuid"
+    "mem_bank/internal/domain/user"
+)
+
 type Memory struct {
-    ID        string                 `json:"id" db:"id"`
-    UserID    string                 `json:"user_id" db:"user_id"`
-    Content   string                 `json:"content" db:"content"`
-    Embedding []float32              `json:"-" db:"embedding"`
-    Metadata  map[string]interface{} `json:"metadata" db:"metadata"`
-    CreatedAt time.Time              `json:"created_at" db:"created_at"`
-    UpdatedAt time.Time              `json:"updated_at" db:"updated_at"`
+    ID           ID                     `json:"id" gorm:"type:uuid;primary_key"`
+    UserID       user.ID                `json:"user_id" gorm:"type:uuid;not null;index"`
+    Content      string                 `json:"content" gorm:"type:text;not null"`
+    Summary      string                 `json:"summary" gorm:"type:text"`
+    
+    // 向量嵌入 (pgvector)
+    Embedding    []float32              `json:"embedding" gorm:"type:vector(1024)"`
+    
+    // 记忆元数据
+    Importance   int                    `json:"importance" gorm:"default:5"`
+    MemoryType   MemoryType            `json:"memory_type" gorm:"type:varchar(50);not null"`
+    Tags         []string              `json:"tags" gorm:"type:text[]"`
+    Metadata     map[string]interface{} `json:"metadata" gorm:"type:jsonb"`
+    
+    // 时间戳
+    CreatedAt    time.Time             `json:"created_at"`
+    UpdatedAt    time.Time             `json:"updated_at"`
+    LastAccessed time.Time             `json:"last_accessed"`
+    AccessCount  int                   `json:"access_count" gorm:"default:0"`
 }
 
-// User 用户实体
-type User struct {
-    ID        string    `json:"id" db:"id"`
-    Name      string    `json:"name" db:"name"`
-    CreatedAt time.Time `json:"created_at" db:"created_at"`
-}
+// 记忆类型枚举
+type MemoryType string
+
+const (
+    MemoryTypeFactual   MemoryType = "factual"   // 事实性记忆
+    MemoryTypeEpisodic  MemoryType = "episodic"  // 情景记忆
+    MemoryTypePersonal  MemoryType = "personal"  // 个人偏好
+    MemoryTypeProcedural MemoryType = "procedural" // 程序性记忆
+)
 ```
 
-#### 4.1.2 业务接口
-
-```go
-// MemoryUsecase 记忆用例接口
-type MemoryUsecase interface {
-    Create(ctx context.Context, userID string, content string) (*Memory, error)
-    GetByID(ctx context.Context, memoryID string) (*Memory, error)
-    GetByUserID(ctx context.Context, userID string, limit, offset int) ([]*Memory, error)
-    Update(ctx context.Context, memoryID string, content string) (*Memory, error)
-    Delete(ctx context.Context, memoryID string) error
-    Search(ctx context.Context, userID string, query string, limit int) ([]*Memory, error)
-}
-
-// MemoryRepository 记忆仓库接口
-type MemoryRepository interface {
-    Save(ctx context.Context, memory *Memory) error
-    FindByID(ctx context.Context, id string) (*Memory, error)
-    FindByUserID(ctx context.Context, userID string, limit, offset int) ([]*Memory, error)
-    Update(ctx context.Context, memory *Memory) error
-    Delete(ctx context.Context, id string) error
-    FindSimilar(ctx context.Context, userID string, embedding []float32, limit int) ([]*Memory, error)
-}
-
-// LLMProvider LLM服务接口
-type LLMProvider interface {
-    CreateEmbedding(ctx context.Context, text string) ([]float32, error)
-    CreateEmbeddings(ctx context.Context, texts []string) ([][]float32, error)
-}
-```
-
-### 4.2 数据库设计
-
-#### 4.2.1 数据库模式
+### 数据库迁移
 
 ```sql
--- 启用pgvector扩展
+-- migrations/002_add_vector_support.up.sql
+-- 启用 pgvector 扩展
 CREATE EXTENSION IF NOT EXISTS vector;
 
--- 用户表
-CREATE TABLE users (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    name VARCHAR(255) NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
+-- 添加向量列到现有的 memories 表
+ALTER TABLE memories ADD COLUMN embedding vector(1024);
+ALTER TABLE memories ADD COLUMN memory_type varchar(50) DEFAULT 'factual';
+ALTER TABLE memories ADD COLUMN tags text[];
+ALTER TABLE memories ALTER COLUMN importance SET DEFAULT 5;
 
--- 记忆表
-CREATE TABLE memories (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    content TEXT NOT NULL,
-    embedding VECTOR(1536) NOT NULL, -- OpenAI ada-002 embedding维度
-    metadata JSONB DEFAULT '{}',
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
+-- 创建向量搜索索引
+CREATE INDEX ON memories USING hnsw (embedding vector_cosine_ops) 
+WITH (m = 16, ef_construction = 64);
 
--- 索引
-CREATE INDEX idx_memories_user_id ON memories(user_id);
-CREATE INDEX idx_memories_created_at ON memories(created_at DESC);
+-- 为常用查询创建索引
+CREATE INDEX idx_memories_user_id_type ON memories (user_id, memory_type);
+CREATE INDEX idx_memories_created_at_desc ON memories (created_at DESC);
+CREATE INDEX idx_memories_importance ON memories (importance DESC);
 
--- 向量索引 (HNSW)
-CREATE INDEX idx_memories_embedding_hnsw ON memories USING hnsw (embedding vector_cosine_ops);
+-- 为标签创建GIN索引支持数组查询
+CREATE INDEX idx_memories_tags ON memories USING gin(tags);
 ```
 
-#### 4.2.2 数据库迁移流程
+## 核心服务实现
 
-```mermaid
-flowchart TD
-    A[启动应用] --> B[检查迁移状态]
-    B --> C{是否需要迁移?}
-    C -->|是| D[执行迁移脚本]
-    C -->|否| E[启动应用服务]
-    D --> F{迁移成功?}
-    F -->|是| E
-    F -->|否| G[记录错误并退出]
-    
-    style D fill:#fff3e0
-    style F fill:#e8f5e8
-    style G fill:#ffebee
-```
-
-### 4.3 API设计
-
-#### 4.3.1 REST API端点
-
-| 方法 | 路径 | 描述 | 请求体 | 响应 |
-|------|------|------|--------|------|
-| POST | `/api/v1/memories` | 创建记忆 | `CreateMemoryRequest` | `Memory` |
-| GET | `/api/v1/memories/{id}` | 获取记忆 | - | `Memory` |
-| GET | `/api/v1/users/{user_id}/memories` | 获取用户记忆列表 | - | `MemoryList` |
-| PUT | `/api/v1/memories/{id}` | 更新记忆 | `UpdateMemoryRequest` | `Memory` |
-| DELETE | `/api/v1/memories/{id}` | 删除记忆 | - | - |
-| POST | `/api/v1/memories/search` | 搜索记忆 | `SearchRequest` | `MemoryList` |
-
-#### 4.3.2 数据传输对象
+### 1. 嵌入服务增强
 
 ```go
-// CreateMemoryRequest 创建记忆请求
+// internal/service/embedding/service.go (增强版本)
+package embedding
+
+import (
+    "context"
+    "encoding/json"
+    "fmt"
+    "net/http"
+    "bytes"
+    "time"
+)
+
+type Service struct {
+    httpClient  *http.Client
+    serviceURL  string
+    modelName   string
+}
+
+type EmbeddingRequest struct {
+    Texts     []string `json:"texts"`
+    ModelName string   `json:"model_name"`
+}
+
+type EmbeddingResponse struct {
+    Embeddings [][]float32 `json:"embeddings"`
+    Model      string      `json:"model"`
+    Usage      Usage       `json:"usage"`
+}
+
+type Usage struct {
+    TotalTokens int `json:"total_tokens"`
+}
+
+func NewService(serviceURL, modelName string) *Service {
+    return &Service{
+        httpClient: &http.Client{
+            Timeout: 30 * time.Second,
+        },
+        serviceURL: serviceURL,
+        modelName:  modelName,
+    }
+}
+
+func (s *Service) GenerateEmbeddings(ctx context.Context, texts []string) ([][]float32, error) {
+    if len(texts) == 0 {
+        return nil, fmt.Errorf("no texts provided")
+    }
+    
+    reqBody := EmbeddingRequest{
+        Texts:     texts,
+        ModelName: s.modelName,
+    }
+    
+    jsonData, err := json.Marshal(reqBody)
+    if err != nil {
+        return nil, fmt.Errorf("failed to marshal request: %w", err)
+    }
+    
+    req, err := http.NewRequestWithContext(ctx, "POST", 
+        s.serviceURL+"/embeddings", bytes.NewBuffer(jsonData))
+    if err != nil {
+        return nil, fmt.Errorf("failed to create request: %w", err)
+    }
+    
+    req.Header.Set("Content-Type", "application/json")
+    
+    resp, err := s.httpClient.Do(req)
+    if err != nil {
+        return nil, fmt.Errorf("failed to call embedding service: %w", err)
+    }
+    defer resp.Body.Close()
+    
+    if resp.StatusCode != http.StatusOK {
+        return nil, fmt.Errorf("embedding service returned status %d", resp.StatusCode)
+    }
+    
+    var result EmbeddingResponse
+    if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+        return nil, fmt.Errorf("failed to decode response: %w", err)
+    }
+    
+    return result.Embeddings, nil
+}
+
+// 单文本嵌入便利方法
+func (s *Service) GenerateEmbedding(ctx context.Context, text string) ([]float32, error) {
+    embeddings, err := s.GenerateEmbeddings(ctx, []string{text})
+    if err != nil {
+        return nil, err
+    }
+    
+    if len(embeddings) == 0 {
+        return nil, fmt.Errorf("no embedding returned")
+    }
+    
+    return embeddings[0], nil
+}
+```
+
+### 2. 记忆存储库实现
+
+```go
+// internal/dao/memory/vector_store.go (新文件)
+package memory
+
+import (
+    "context"
+    "fmt"
+    "gorm.io/gorm"
+    "mem_bank/internal/domain/memory"
+    "mem_bank/internal/domain/user"
+)
+
+type PostgresVectorStore struct {
+    db *gorm.DB
+}
+
+func NewPostgresVectorStore(db *gorm.DB) *PostgresVectorStore {
+    return &PostgresVectorStore{db: db}
+}
+
+// 向量搜索方法
+func (s *PostgresVectorStore) SearchSimilar(ctx context.Context, userID user.ID, 
+    queryEmbedding []float32, limit int, threshold float64) ([]*memory.Memory, error) {
+    
+    var memories []*memory.Memory
+    
+    // 使用 pgvector 的余弦距离搜索
+    // 注意: <-> 是余弦距离，<#> 是负内积，<=> 是欧氏距离
+    query := `
+        SELECT *, (embedding <-> ?) as distance 
+        FROM memories 
+        WHERE user_id = ? 
+            AND embedding IS NOT NULL 
+            AND (embedding <-> ?) < ?
+        ORDER BY embedding <-> ? 
+        LIMIT ?`
+    
+    // 将 []float32 转换为 pgvector 可识别的格式
+    embeddingStr := vectorToString(queryEmbedding)
+    
+    err := s.db.WithContext(ctx).Raw(query, 
+        embeddingStr, userID, embeddingStr, threshold, embeddingStr, limit).
+        Scan(&memories).Error
+    
+    if err != nil {
+        return nil, fmt.Errorf("failed to search similar memories: %w", err)
+    }
+    
+    return memories, nil
+}
+
+// 批量向量搜索
+func (s *PostgresVectorStore) BatchSearchSimilar(ctx context.Context, userID user.ID,
+    queryEmbeddings [][]float32, limit int) ([][]*memory.Memory, error) {
+    
+    results := make([][]*memory.Memory, len(queryEmbeddings))
+    
+    for i, embedding := range queryEmbeddings {
+        memories, err := s.SearchSimilar(ctx, userID, embedding, limit, 1.0)
+        if err != nil {
+            return nil, fmt.Errorf("batch search failed at index %d: %w", i, err)
+        }
+        results[i] = memories
+    }
+    
+    return results, nil
+}
+
+// 按标签和相似度搜索
+func (s *PostgresVectorStore) SearchByTagsAndSimilarity(ctx context.Context, 
+    userID user.ID, tags []string, queryEmbedding []float32, limit int) ([]*memory.Memory, error) {
+    
+    var memories []*memory.Memory
+    
+    query := `
+        SELECT *, (embedding <-> ?) as distance 
+        FROM memories 
+        WHERE user_id = ? 
+            AND embedding IS NOT NULL
+            AND tags && ?
+        ORDER BY embedding <-> ? 
+        LIMIT ?`
+    
+    embeddingStr := vectorToString(queryEmbedding)
+    
+    err := s.db.WithContext(ctx).Raw(query, 
+        embeddingStr, userID, tags, embeddingStr, limit).
+        Scan(&memories).Error
+    
+    if err != nil {
+        return nil, fmt.Errorf("failed to search by tags and similarity: %w", err)
+    }
+    
+    return memories, nil
+}
+
+// 工具函数：将 []float32 转换为 pgvector 字符串格式
+func vectorToString(vector []float32) string {
+    if len(vector) == 0 {
+        return "[]"
+    }
+    
+    result := "["
+    for i, v := range vector {
+        if i > 0 {
+            result += ","
+        }
+        result += fmt.Sprintf("%.6f", v)
+    }
+    result += "]"
+    return result
+}
+```
+
+### 3. 记忆服务层实现
+
+```go
+// internal/service/memory/service.go (增强版本)
+package memory
+
+import (
+    "context"
+    "fmt"
+    "mem_bank/internal/domain/memory"
+    "mem_bank/internal/domain/user"
+    "mem_bank/internal/service/embedding"
+)
+
+type Service struct {
+    memoryRepo     memory.Repository
+    embeddingRepo  memory.VectorStore
+    embeddingService *embedding.Service
+}
+
 type CreateMemoryRequest struct {
-    UserID   string                 `json:"user_id" binding:"required,uuid"`
-    Content  string                 `json:"content" binding:"required,min=1,max=10000"`
-    Metadata map[string]interface{} `json:"metadata"`
+    UserID     user.ID              `json:"user_id" validate:"required"`
+    Content    string               `json:"content" validate:"required,min=1,max=5000"`
+    Summary    string               `json:"summary,omitempty"`
+    Importance int                  `json:"importance" validate:"min=1,max=10"`
+    MemoryType memory.MemoryType    `json:"memory_type" validate:"required"`
+    Tags       []string             `json:"tags,omitempty"`
+    Metadata   map[string]interface{} `json:"metadata,omitempty"`
 }
 
-// UpdateMemoryRequest 更新记忆请求
-type UpdateMemoryRequest struct {
-    Content  string                 `json:"content" binding:"required,min=1,max=10000"`
-    Metadata map[string]interface{} `json:"metadata"`
-}
-
-// SearchRequest 搜索请求
 type SearchRequest struct {
-    UserID string `json:"user_id" binding:"required,uuid"`
-    Query  string `json:"query" binding:"required,min=1,max=1000"`
-    Limit  int    `json:"limit" binding:"min=1,max=100"`
+    UserID      user.ID    `json:"user_id" validate:"required"`
+    Query       string     `json:"query" validate:"required,min=1"`
+    Limit       int        `json:"limit" validate:"min=1,max=50"`
+    Tags        []string   `json:"tags,omitempty"`
+    MemoryType  string     `json:"memory_type,omitempty"`
+    Threshold   float64    `json:"threshold" validate:"min=0,max=2"`
 }
 
-// MemoryList 记忆列表响应
-type MemoryList struct {
-    Memories []*Memory `json:"memories"`
-    Total    int       `json:"total"`
-    Limit    int       `json:"limit"`
-    Offset   int       `json:"offset"`
+func NewService(memoryRepo memory.Repository, vectorStore memory.VectorStore, 
+    embeddingService *embedding.Service) *Service {
+    return &Service{
+        memoryRepo:       memoryRepo,
+        embeddingRepo:    vectorStore,
+        embeddingService: embeddingService,
+    }
+}
+
+// 创建记忆（包含向量生成）
+func (s *Service) CreateMemory(ctx context.Context, req *CreateMemoryRequest) (*memory.Memory, error) {
+    // 生成向量嵌入
+    embedding, err := s.embeddingService.GenerateEmbedding(ctx, req.Content)
+    if err != nil {
+        return nil, fmt.Errorf("failed to generate embedding: %w", err)
+    }
+    
+    // 创建记忆实体
+    mem := memory.NewMemory(req.UserID, req.Content, req.Summary, req.Importance, string(req.MemoryType))
+    mem.Embedding = embedding
+    mem.Tags = req.Tags
+    mem.Metadata = req.Metadata
+    
+    // 存储到数据库
+    if err := s.memoryRepo.Create(ctx, mem); err != nil {
+        return nil, fmt.Errorf("failed to create memory: %w", err)
+    }
+    
+    return mem, nil
+}
+
+// 语义搜索记忆
+func (s *Service) SearchMemories(ctx context.Context, req *SearchRequest) ([]*memory.Memory, error) {
+    // 生成查询向量
+    queryEmbedding, err := s.embeddingService.GenerateEmbedding(ctx, req.Query)
+    if err != nil {
+        return nil, fmt.Errorf("failed to generate query embedding: %w", err)
+    }
+    
+    // 设置默认阈值
+    threshold := req.Threshold
+    if threshold == 0 {
+        threshold = 0.8 // 余弦相似度阈值
+    }
+    
+    var memories []*memory.Memory
+    
+    // 根据是否有标签选择不同的搜索策略
+    if len(req.Tags) > 0 {
+        memories, err = s.embeddingRepo.SearchByTagsAndSimilarity(
+            ctx, req.UserID, req.Tags, queryEmbedding, req.Limit)
+    } else {
+        memories, err = s.embeddingRepo.SearchSimilar(
+            ctx, req.UserID, queryEmbedding, req.Limit, threshold)
+    }
+    
+    if err != nil {
+        return nil, fmt.Errorf("failed to search memories: %w", err)
+    }
+    
+    // 记录访问
+    for _, mem := range memories {
+        mem.Access()
+        // 异步更新访问统计
+        go func(m *memory.Memory) {
+            s.memoryRepo.Update(context.Background(), m)
+        }(mem)
+    }
+    
+    return memories, nil
+}
+
+// 获取用户的记忆统计
+func (s *Service) GetMemoryStats(ctx context.Context, userID user.ID) (*MemoryStats, error) {
+    stats := &MemoryStats{}
+    
+    // 总记忆数量
+    total, err := s.memoryRepo.CountByUserID(ctx, userID)
+    if err != nil {
+        return nil, fmt.Errorf("failed to count memories: %w", err)
+    }
+    stats.TotalMemories = total
+    
+    // 按类型分组统计
+    typeStats, err := s.memoryRepo.CountByType(ctx, userID)
+    if err != nil {
+        return nil, fmt.Errorf("failed to count by type: %w", err)
+    }
+    stats.ByType = typeStats
+    
+    return stats, nil
+}
+
+type MemoryStats struct {
+    TotalMemories int                    `json:"total_memories"`
+    ByType        map[string]int         `json:"by_type"`
+    LastAccessed  *time.Time             `json:"last_accessed,omitempty"`
 }
 ```
 
-### 4.4 配置管理
+## API接口设计
 
-#### 4.4.1 配置结构
+### 记忆管理API
 
 ```go
-type Config struct {
-    // 服务配置
-    Server ServerConfig `mapstructure:"server"`
+// internal/handler/http/memory/handler.go (增强版本)
+package memory
+
+import (
+    "net/http"
+    "strconv"
     
-    // 数据库配置
-    Database DatabaseConfig `mapstructure:"database"`
-    
-    // LLM配置
-    LLM LLMConfig `mapstructure:"llm"`
-    
-    // 日志配置
-    Log LogConfig `mapstructure:"log"`
+    "github.com/gin-gonic/gin"
+    "mem_bank/internal/domain/user"
+    "mem_bank/internal/service/memory"
+)
+
+type Handler struct {
+    memoryService *memory.Service
 }
 
-type ServerConfig struct {
-    Port         string        `mapstructure:"port"`
-    ReadTimeout  time.Duration `mapstructure:"read_timeout"`
-    WriteTimeout time.Duration `mapstructure:"write_timeout"`
+func NewHandler(memoryService *memory.Service) *Handler {
+    return &Handler{
+        memoryService: memoryService,
+    }
 }
 
-type DatabaseConfig struct {
-    URL         string `mapstructure:"url"`
-    MaxOpenConn int    `mapstructure:"max_open_conn"`
-    MaxIdleConn int    `mapstructure:"max_idle_conn"`
+// POST /api/v1/memories
+func (h *Handler) CreateMemory(c *gin.Context) {
+    var req memory.CreateMemoryRequest
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+    
+    mem, err := h.memoryService.CreateMemory(c.Request.Context(), &req)
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+        return
+    }
+    
+    c.JSON(http.StatusCreated, gin.H{
+        "success": true,
+        "data": mem,
+    })
 }
 
-type LLMConfig struct {
-    Provider string `mapstructure:"provider"` // "openai"
-    APIKey   string `mapstructure:"api_key"`
-    BaseURL  string `mapstructure:"base_url"`
+// POST /api/v1/memories/search
+func (h *Handler) SearchMemories(c *gin.Context) {
+    var req memory.SearchRequest
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+    
+    // 设置默认限制
+    if req.Limit == 0 {
+        req.Limit = 10
+    }
+    
+    memories, err := h.memoryService.SearchMemories(c.Request.Context(), &req)
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+        return
+    }
+    
+    c.JSON(http.StatusOK, gin.H{
+        "success": true,
+        "data": memories,
+        "count": len(memories),
+    })
 }
 
-type LogConfig struct {
-    Level  string `mapstructure:"level"`
-    Format string `mapstructure:"format"` // "json" or "text"
+// GET /api/v1/users/:user_id/memories/stats
+func (h *Handler) GetMemoryStats(c *gin.Context) {
+    userIDStr := c.Param("user_id")
+    userID, err := user.ParseID(userIDStr)
+    if err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "invalid user ID"})
+        return
+    }
+    
+    stats, err := h.memoryService.GetMemoryStats(c.Request.Context(), userID)
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+        return
+    }
+    
+    c.JSON(http.StatusOK, gin.H{
+        "success": true,
+        "data": stats,
+    })
+}
+
+// GET /api/v1/users/:user_id/memories
+func (h *Handler) GetUserMemories(c *gin.Context) {
+    userIDStr := c.Param("user_id")
+    userID, err := user.ParseID(userIDStr)
+    if err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "invalid user ID"})
+        return
+    }
+    
+    // 解析查询参数
+    limitStr := c.DefaultQuery("limit", "20")
+    limit, _ := strconv.Atoi(limitStr)
+    if limit > 100 {
+        limit = 100
+    }
+    
+    offsetStr := c.DefaultQuery("offset", "0")
+    offset, _ := strconv.Atoi(offsetStr)
+    
+    memoryType := c.Query("type")
+    
+    memories, err := h.memoryService.GetUserMemories(c.Request.Context(), userID, limit, offset, memoryType)
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+        return
+    }
+    
+    c.JSON(http.StatusOK, gin.H{
+        "success": true,
+        "data": memories,
+        "count": len(memories),
+    })
 }
 ```
 
-#### 4.4.2 配置加载流程
+## 部署配置
 
-```mermaid
-sequenceDiagram
-    participant App as 应用启动
-    participant Viper as Viper
-    participant File as 配置文件
-    participant Env as 环境变量
-    participant Config as 配置结构
+### BGE-M3嵌入服务
 
-    App->>Viper: 初始化配置管理
-    Viper->>File: 读取config.yaml
-    File-->>Viper: 返回文件配置
-    Viper->>Env: 读取环境变量
-    Env-->>Viper: 返回环境配置
-    Viper->>Viper: 合并配置(环境变量优先)
-    Viper->>Config: 反序列化到结构体
-    Config-->>App: 返回配置对象
+创建Python嵌入服务作为独立微服务：
+
+```python
+# scripts/embedding_service.py
+from flask import Flask, request, jsonify
+from FlagEmbedding import BGEM3FlagModel
+import numpy as np
+import logging
+
+app = Flask(__name__)
+logging.basicConfig(level=logging.INFO)
+
+# 加载模型
+model = None
+
+def load_model():
+    global model
+    try:
+        model = BGEM3FlagModel('./models/bge-m3', use_fp16=True)
+        logging.info("BGE-M3 model loaded successfully")
+    except Exception as e:
+        logging.error(f"Failed to load model: {e}")
+        raise
+
+@app.route('/embeddings', methods=['POST'])
+def generate_embeddings():
+    try:
+        data = request.json
+        texts = data.get('texts', [])
+        
+        if not texts:
+            return jsonify({"error": "No texts provided"}), 400
+        
+        # 生成嵌入
+        embeddings = model.encode(texts, return_dense=True, return_sparse=False, return_colbert_vecs=False)
+        dense_embeddings = embeddings['dense_vecs'].tolist()
+        
+        return jsonify({
+            "embeddings": dense_embeddings,
+            "model": "BAAI/bge-m3",
+            "usage": {
+                "total_tokens": sum(len(text.split()) for text in texts)
+            }
+        })
+    
+    except Exception as e:
+        logging.error(f"Error generating embeddings: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/health', methods=['GET'])
+def health_check():
+    return jsonify({"status": "healthy", "model_loaded": model is not None})
+
+if __name__ == '__main__':
+    load_model()
+    app.run(host='0.0.0.0', port=8001)
 ```
 
-### 4.5 实现流程
+### Docker Compose配置
 
-#### 4.5.1 创建记忆流程
-
-```mermaid
-sequenceDiagram
-    participant Client as 客户端
-    participant Handler as HTTP Handler
-    participant Usecase as Memory Usecase
-    participant LLM as LLM Provider
-    participant Repo as Repository
-    participant DB as PostgreSQL
-
-    Client->>Handler: POST /api/v1/memories
-    Handler->>Handler: 验证请求数据
-    Handler->>Usecase: Create(userID, content)
-    
-    Usecase->>LLM: CreateEmbedding(content)
-    LLM-->>Usecase: 返回向量嵌入
-    
-    Usecase->>Usecase: 构建Memory对象
-    Usecase->>Repo: Save(memory)
-    
-    Repo->>DB: INSERT INTO memories
-    DB-->>Repo: 返回记录ID
-    Repo-->>Usecase: 返回完整记忆对象
-    Usecase-->>Handler: 返回记忆对象
-    Handler-->>Client: 201 Created + Memory JSON
-```
-
-#### 4.5.2 搜索记忆流程
-
-```mermaid
-sequenceDiagram
-    participant Client as 客户端
-    participant Handler as HTTP Handler
-    participant Usecase as Memory Usecase
-    participant LLM as LLM Provider
-    participant Repo as Repository
-    participant DB as PostgreSQL
-
-    Client->>Handler: POST /api/v1/memories/search
-    Handler->>Handler: 验证搜索参数
-    Handler->>Usecase: Search(userID, query, limit)
-    
-    Usecase->>LLM: CreateEmbedding(query)
-    LLM-->>Usecase: 返回查询向量
-    
-    Usecase->>Repo: FindSimilar(userID, embedding, limit)
-    
-    Repo->>DB: SELECT ... ORDER BY embedding <=> $1 LIMIT $2
-    DB-->>Repo: 返回相似记忆列表
-    Repo-->>Usecase: 返回记忆列表
-    Usecase-->>Handler: 返回搜索结果
-    Handler-->>Client: 200 OK + MemoryList JSON
-```
-
-## 5. 实施计划
-
-### 5.1 开发里程碑
-
-#### 第1周: 项目基础设施
-- [ ] 项目结构搭建
-- [ ] Go模块初始化
-- [ ] 依赖管理配置
-- [ ] 开发环境设置
-
-#### 第2周: 核心模型与配置
-- [ ] 领域模型定义
-- [ ] 配置管理实现
-- [ ] 日志系统集成
-- [ ] 数据库连接
-
-#### 第3周: 数据访问层
-- [ ] PostgreSQL集成
-- [ ] pgvector配置
-- [ ] Repository实现
-- [ ] 数据库迁移
-
-#### 第4周: 业务逻辑层
-- [ ] Usecase实现
-- [ ] LLM集成
-- [ ] 向量嵌入生成
-- [ ] 单元测试
-
-#### 第5周: API层
-- [ ] Gin框架集成
-- [ ] HTTP处理器
-- [ ] 路由配置
-- [ ] 请求验证
-
-#### 第6周: 集成测试与优化
-- [ ] 集成测试
-- [ ] API测试
-- [ ] 性能调优
-- [ ] 文档完善
-
-### 5.2 技术债务管理
-
-#### 已知限制
-1. **同步处理**: 当前阶段使用同步处理，后续需要改为异步
-2. **单一数据库**: 仅支持PostgreSQL，需要抽象化支持多数据库
-3. **简单LLM集成**: 仅支持基础嵌入生成，缺少工具调用能力
-4. **基础错误处理**: 错误处理较为简单，需要增强
-
-#### 重构计划
-- 第二阶段：引入异步处理机制
-- 第三阶段：实现多数据库支持
-- 第四阶段：完善监控和可观测性
-
-## 6. 测试策略
-
-### 6.1 单元测试
-
-#### 测试覆盖范围
-- 领域模型验证
-- 业务逻辑测试
-- Repository层测试
-- API处理器测试
-
-#### 测试工具
-- `testify`: 断言和模拟框架
-- `go-mock`: 接口模拟生成
-- `dockertest`: 数据库集成测试
-
-### 6.2 集成测试
-
-#### 测试场景
-- 端到端API流程
-- 数据库操作验证
-- LLM服务集成
-- 配置加载测试
-
-### 6.3 测试数据管理
-
-```mermaid
-graph LR
-    A[测试启动] --> B[创建测试数据库]
-    B --> C[运行迁移]
-    C --> D[插入测试数据]
-    D --> E[执行测试]
-    E --> F[清理测试数据]
-    F --> G[删除测试数据库]
-    
-    style B fill:#e8f5e8
-    style F fill:#fff3e0
-```
-
-## 7. 部署与运维
-
-### 7.1 容器化
-
-#### Dockerfile
-```dockerfile
-FROM golang:1.24-alpine AS builder
-WORKDIR /app
-COPY go.mod go.sum ./
-RUN go mod download
-COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -o mem-bank ./cmd/api
-
-FROM alpine:latest
-RUN apk --no-cache add ca-certificates
-WORKDIR /root/
-COPY --from=builder /app/mem-bank .
-COPY --from=builder /app/configs ./configs
-EXPOSE 8080
-CMD ["./mem-bank"]
-```
-
-#### Docker Compose
 ```yaml
+# docker-compose.yml (更新)
 version: '3.8'
-services:
-  app:
-    build: .
-    ports:
-      - "8080:8080"
-    environment:
-      - DATABASE_URL=postgres://user:pass@postgres:5432/membank?sslmode=disable
-    depends_on:
-      - postgres
 
-  postgres:
-    image: pgvector/pgvector:pg16
+services:
+  # MCP主应用
+  mcp_app:
+    build: .
+    container_name: mcp_app
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./configs:/app/configs
     environment:
-      - POSTGRES_DB=membank
+      - EMBEDDING_SERVICE_URL=http://embedding_service:8001
+      - POSTGRES_DSN=postgres://user:password@postgres_db:5432/mcp_db?sslmode=disable
+      - REDIS_ADDR=redis_cache:6379
+    depends_on:
+      - postgres_db
+      - redis_cache
+      - embedding_service
+    restart: unless-stopped
+
+  # BGE-M3嵌入服务
+  embedding_service:
+    build:
+      context: .
+      dockerfile: Dockerfile.embedding
+    container_name: embedding_service
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./models:/app/models
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 2G
+    restart: unless-stopped
+
+  # PostgreSQL数据库
+  postgres_db:
+    image: pgvector/pgvector:pg16
+    container_name: postgres_db
+    environment:
       - POSTGRES_USER=user
-      - POSTGRES_PASSWORD=pass
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=mcp_db
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d
     ports:
       - "5432:5432"
+    restart: unless-stopped
+
+  # Redis缓存
+  redis_cache:
+    image: redis:7-alpine
+    container_name: redis_cache
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
 
 volumes:
   postgres_data:
+  redis_data:
 ```
 
-### 7.2 健康检查
+## 测试策略
 
-#### 健康检查端点
+### 单元测试示例
+
 ```go
-func (h *HealthHandler) Check(c *gin.Context) {
-    status := map[string]string{
-        "status": "healthy",
-        "database": h.checkDatabase(),
-        "llm": h.checkLLM(),
+// internal/service/memory/service_test.go
+package memory_test
+
+import (
+    "context"
+    "testing"
+    
+    "github.com/stretchr/testify/assert"
+    "github.com/stretchr/testify/mock"
+    
+    "mem_bank/internal/domain/memory"
+    "mem_bank/internal/domain/user"
+    "mem_bank/internal/service/memory"
+)
+
+func TestMemoryService_CreateMemory(t *testing.T) {
+    // 设置模拟对象
+    mockRepo := &MockMemoryRepository{}
+    mockVectorStore := &MockVectorStore{}
+    mockEmbedding := &MockEmbeddingService{}
+    
+    service := memory.NewService(mockRepo, mockVectorStore, mockEmbedding)
+    
+    // 模拟嵌入生成
+    expectedEmbedding := make([]float32, 1024)
+    for i := range expectedEmbedding {
+        expectedEmbedding[i] = 0.1
     }
-    c.JSON(http.StatusOK, status)
+    mockEmbedding.On("GenerateEmbedding", mock.Anything, "test content").Return(expectedEmbedding, nil)
+    
+    // 模拟仓储创建
+    mockRepo.On("Create", mock.Anything, mock.AnythingOfType("*memory.Memory")).Return(nil)
+    
+    // 执行测试
+    req := &memory.CreateMemoryRequest{
+        UserID:     user.NewID(),
+        Content:    "test content",
+        Summary:    "test summary",
+        Importance: 5,
+        MemoryType: memory.MemoryTypeFactual,
+    }
+    
+    mem, err := service.CreateMemory(context.Background(), req)
+    
+    // 断言
+    assert.NoError(t, err)
+    assert.NotNil(t, mem)
+    assert.Equal(t, req.Content, mem.Content)
+    assert.Equal(t, expectedEmbedding, mem.Embedding)
+    
+    mockEmbedding.AssertExpectations(t)
+    mockRepo.AssertExpectations(t)
 }
 ```
 
-## 8. 安全考虑
+## 性能目标
 
-### 8.1 数据安全
-- 数据库连接加密
-- 敏感配置环境变量化
-- API密钥安全存储
+### Stage 1性能指标
 
-### 8.2 输入验证
-- 请求参数验证
-- SQL注入防护
-- XSS防护
+| 指标 | 目标值 | 测量方法 |
+|------|--------|----------|
+| **API响应时间** | P95 < 100ms | HTTP压测工具 |
+| **向量搜索延迟** | < 50ms | 数据库查询日志 |
+| **嵌入生成时间** | < 200ms (单文档) | 服务调用跟踪 |
+| **并发处理能力** | 100 QPS | 负载测试 |
+| **内存使用** | < 512MB (不含模型) | 系统监控 |
+| **数据库连接** | < 10个活跃连接 | PostgreSQL监控 |
 
-### 8.3 访问控制
-- 用户身份验证（预留接口）
-- 记忆访问权限控制
-- API限流保护
+## 里程碑和验收标准
 
-## 9. 总结
+### M1.1: 基础存储功能 (3天)
 
-第一阶段MVP设计提供了AI记忆系统的基础架构和核心功能。通过采用Clean Architecture和Repository模式，为系统的可扩展性和可维护性奠定了坚实基础。后续阶段将在此基础上构建智能化的记忆管理能力。
+**完成标准：**
 
-### 9.1 交付成果
-- 完整的CRUD API
-- PostgreSQL+pgvector集成
-- 基础向量搜索能力
-- 配置管理系统
-- 容器化部署方案
+- ✅ 数据库迁移脚本完成
+- ✅ 记忆实体CRUD操作正常
+- ✅ pgvector索引创建成功
+- ✅ 基础单元测试通过
 
-### 9.2 后续阶段准备
-- 预留异步处理接口
-- 抽象数据库访问层
-- 设计扩展点为智能化功能做准备
+### M1.2: 向量搜索集成 (2天)
 
----
-**文档状态**: 草案  
-**下次评审**: 2025-08-24  
-**相关文档**: [总体架构设计](./overall-architecture.md), [第二阶段设计](./stage2-intelligent-design.md)
+**完成标准：**
+
+- ✅ BGE-M3服务正常运行
+- ✅ 嵌入生成API可用
+- ✅ 向量相似度搜索功能正常
+- ✅ 搜索结果准确性验证
+
+### M1.3: REST API完善 (2天)
+
+**完成标准：**
+
+- ✅ 所有API端点实现
+- ✅ 请求验证和错误处理
+- ✅ API文档完整
+- ✅ Postman测试集合
+
+### M1.4: 集成测试和部署 (1天)
+
+**完成标准：**
+
+- ✅ Docker Compose部署成功
+- ✅ 端到端测试通过
+- ✅ 性能指标达标
+- ✅ 文档和示例完整
+
+## 下一阶段预览
+
+Stage 1完成后，将为Stage 2的智能记忆处理引擎奠定坚实基础：
+
+- LLM集成和事实提取
+- 记忆整合算法（ADD/UPDATE/DELETE/NOOP）
+- 语境合成和提示优化
+- 异步处理和队列机制
+
+Stage 1的MVP将证明基础架构的可行性，为后续的智能化功能提供稳定的技术底座。
