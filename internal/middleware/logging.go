@@ -12,20 +12,20 @@ func RequestLogger(appLogger logger.Logger) gin.HandlerFunc {
 	return gin.LoggerWithFormatter(func(params gin.LogFormatterParams) string {
 		// Log to structured logger instead of stdout
 		fields := map[string]interface{}{
-			"timestamp":    params.TimeStamp.Format(time.RFC3339),
-			"method":       params.Method,
-			"path":         params.Path,
-			"status_code":  params.StatusCode,
-			"latency":      params.Latency.String(),
-			"client_ip":    params.ClientIP,
-			"user_agent":   params.Request.UserAgent(),
-			"body_size":    params.BodySize,
+			"timestamp":   params.TimeStamp.Format(time.RFC3339),
+			"method":      params.Method,
+			"path":        params.Path,
+			"status_code": params.StatusCode,
+			"latency":     params.Latency.String(),
+			"client_ip":   params.ClientIP,
+			"user_agent":  params.Request.UserAgent(),
+			"body_size":   params.BodySize,
 		}
-		
+
 		if params.ErrorMessage != "" {
 			fields["error"] = params.ErrorMessage
 		}
-		
+
 		// Log with appropriate level based on status code
 		switch {
 		case params.StatusCode >= 500:
@@ -35,7 +35,7 @@ func RequestLogger(appLogger logger.Logger) gin.HandlerFunc {
 		default:
 			appLogger.WithFields(fields).Info("HTTP request completed")
 		}
-		
+
 		return "" // Return empty string since we're logging elsewhere
 	})
 }
@@ -48,7 +48,7 @@ func RequestID() gin.HandlerFunc {
 			// Generate a simple request ID
 			requestID = generateRequestID()
 		}
-		
+
 		c.Set("request_id", requestID)
 		c.Header("X-Request-ID", requestID)
 		c.Next()

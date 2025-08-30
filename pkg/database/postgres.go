@@ -28,10 +28,24 @@ func NewPostgresConnection(config *configs.DatabaseConfig) (*PostgresDB, error) 
 		return nil, fmt.Errorf("failed to parse database config: %w", err)
 	}
 
+	// Connection pool configuration for better performance
 	poolConfig.MaxConns = int32(config.MaxOpenConns)
 	poolConfig.MinConns = int32(config.MaxIdleConns)
 	poolConfig.MaxConnLifetime = config.MaxLifetime
 	poolConfig.MaxConnIdleTime = 30 * time.Minute
+
+	// Health check configuration
+	poolConfig.HealthCheckPeriod = 1 * time.Minute
+
+	// Connection configuration for better performance
+	poolConfig.ConnConfig.ConnectTimeout = 10 * time.Second
+	poolConfig.ConnConfig.RuntimeParams = map[string]string{
+		"application_name": "mem_bank",
+		"timezone":         "UTC",
+		// Performance optimization parameters
+		"shared_preload_libraries": "pg_stat_statements",
+		"log_statement":            "none", // Reduce logging overhead
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

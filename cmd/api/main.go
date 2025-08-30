@@ -2,15 +2,12 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
-	"github.com/redis/go-redis/v9"
-	
 	"mem_bank/configs"
 	"mem_bank/internal/app"
 	"mem_bank/pkg/database"
@@ -40,19 +37,17 @@ func main() {
 	appLogger.Info("Database connection established")
 
 	// Initialize Redis
-	redisClient := redis.NewClient(&redis.Options{
-		Addr:     fmt.Sprintf("%s:%d", config.Redis.Host, config.Redis.Port),
+	redisConfig := database.RedisConfig{
+		Host:     config.Redis.Host,
+		Port:     config.Redis.Port,
 		Password: config.Redis.Password,
 		DB:       config.Redis.DB,
-	})
-	defer redisClient.Close()
-
-	// Test Redis connection
-	if err := redisClient.Ping(context.Background()).Err(); err != nil {
+	}
+	redisClient, err := database.NewRedisClient(redisConfig, appLogger)
+	if err != nil {
 		appLogger.WithError(err).Fatal("Failed to connect to Redis")
 	}
-
-	appLogger.Info("Redis connection established")
+	defer redisClient.Close()
 
 	// Create application config
 	appConfig := app.Config{

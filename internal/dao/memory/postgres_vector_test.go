@@ -12,21 +12,21 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
+	"mem_bank/configs"
 	"mem_bank/internal/domain/memory"
 	"mem_bank/internal/domain/user"
 	"mem_bank/pkg/database"
-	"mem_bank/configs"
 )
 
 func setupTestDB(t *testing.T) *gorm.DB {
 	// Skip integration tests if database is not available
 	dbConfig := &configs.DatabaseConfig{
-		Host:     getEnv("TEST_DB_HOST", "localhost"),
-		Port:     5432,
-		User:     getEnv("TEST_DB_USER", "test_user"),
-		Password: getEnv("TEST_DB_PASSWORD", "test_password"),
-		DBName:   getEnv("TEST_DB_NAME", "test_mem_bank"),
-		SSLMode:  "disable",
+		Host:         getEnv("TEST_DB_HOST", "localhost"),
+		Port:         5432,
+		User:         getEnv("TEST_DB_USER", "test_user"),
+		Password:     getEnv("TEST_DB_PASSWORD", "test_password"),
+		DBName:       getEnv("TEST_DB_NAME", "test_mem_bank"),
+		SSLMode:      "disable",
 		MaxOpenConns: 5,
 		MaxIdleConns: 2,
 		MaxLifetime:  5 * time.Minute,
@@ -53,52 +53,52 @@ func TestPostgresRepository_SearchSimilar_Integration(t *testing.T) {
 
 	// Create test user
 	testUserID := user.ID(uuid.New())
-	
+
 	// Create test memories with embeddings
 	memories := []*memory.Memory{
 		{
-			ID:        memory.NewID(),
-			UserID:    testUserID,
-			Content:   "I love playing basketball",
-			Summary:   "Sports preference",
-			Embedding: []float32{0.1, 0.2, 0.3, 0.4},
+			ID:         memory.NewID(),
+			UserID:     testUserID,
+			Content:    "I love playing basketball",
+			Summary:    "Sports preference",
+			Embedding:  []float32{0.1, 0.2, 0.3, 0.4},
 			Importance: 5,
 			MemoryType: "preference",
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
+			CreatedAt:  time.Now(),
+			UpdatedAt:  time.Now(),
 		},
 		{
-			ID:        memory.NewID(),
-			UserID:    testUserID,
-			Content:   "Basketball is my favorite sport",
-			Summary:   "Sports favorite",
-			Embedding: []float32{0.15, 0.22, 0.28, 0.41}, // Similar to first
+			ID:         memory.NewID(),
+			UserID:     testUserID,
+			Content:    "Basketball is my favorite sport",
+			Summary:    "Sports favorite",
+			Embedding:  []float32{0.15, 0.22, 0.28, 0.41}, // Similar to first
 			Importance: 6,
 			MemoryType: "preference",
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
+			CreatedAt:  time.Now(),
+			UpdatedAt:  time.Now(),
 		},
 		{
-			ID:        memory.NewID(),
-			UserID:    testUserID,
-			Content:   "I enjoy cooking pasta",
-			Summary:   "Cooking interest",
-			Embedding: []float32{0.8, 0.1, 0.9, 0.2}, // Different from sports
+			ID:         memory.NewID(),
+			UserID:     testUserID,
+			Content:    "I enjoy cooking pasta",
+			Summary:    "Cooking interest",
+			Embedding:  []float32{0.8, 0.1, 0.9, 0.2}, // Different from sports
 			Importance: 4,
 			MemoryType: "interest",
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
+			CreatedAt:  time.Now(),
+			UpdatedAt:  time.Now(),
 		},
 		{
-			ID:        memory.NewID(),
-			UserID:    user.ID(uuid.New()), // Different user
-			Content:   "I also love basketball",
-			Summary:   "Sports preference",
-			Embedding: []float32{0.12, 0.21, 0.29, 0.42}, // Similar to first but different user
+			ID:         memory.NewID(),
+			UserID:     user.ID(uuid.New()), // Different user
+			Content:    "I also love basketball",
+			Summary:    "Sports preference",
+			Embedding:  []float32{0.12, 0.21, 0.29, 0.42}, // Similar to first but different user
 			Importance: 5,
 			MemoryType: "preference",
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
+			CreatedAt:  time.Now(),
+			UpdatedAt:  time.Now(),
 		},
 	}
 
@@ -119,19 +119,19 @@ func TestPostgresRepository_SearchSimilar_Integration(t *testing.T) {
 	t.Run("find_similar_memories", func(t *testing.T) {
 		// Search with embedding similar to basketball memories
 		queryEmbedding := []float32{0.12, 0.21, 0.31, 0.39}
-		
+
 		results, err := repo.SearchSimilar(ctx, queryEmbedding, testUserID, 5, 0.5)
-		
+
 		require.NoError(t, err)
-		
+
 		// Should find the basketball-related memories for this user
 		assert.True(t, len(results) >= 1, "Should find at least one similar memory")
-		
+
 		// Verify results are for the correct user
 		for _, result := range results {
 			assert.Equal(t, testUserID, result.UserID)
 		}
-		
+
 		// First result should be most similar (basketball related)
 		if len(results) > 0 {
 			assert.Contains(t, results[0].Content, "basketball")
@@ -140,22 +140,22 @@ func TestPostgresRepository_SearchSimilar_Integration(t *testing.T) {
 
 	t.Run("high_threshold_returns_fewer_results", func(t *testing.T) {
 		queryEmbedding := []float32{0.12, 0.21, 0.31, 0.39}
-		
+
 		// High threshold should return fewer results
 		resultsHighThreshold, err := repo.SearchSimilar(ctx, queryEmbedding, testUserID, 5, 0.95)
 		require.NoError(t, err)
-		
+
 		// Low threshold should return more results
 		resultsLowThreshold, err := repo.SearchSimilar(ctx, queryEmbedding, testUserID, 5, 0.3)
 		require.NoError(t, err)
-		
+
 		assert.True(t, len(resultsHighThreshold) <= len(resultsLowThreshold),
 			"High threshold should return fewer or equal results")
 	})
 
 	t.Run("empty_embedding_returns_empty_results", func(t *testing.T) {
 		results, err := repo.SearchSimilar(ctx, []float32{}, testUserID, 5, 0.8)
-		
+
 		require.NoError(t, err)
 		assert.Empty(t, results)
 	})
@@ -163,9 +163,9 @@ func TestPostgresRepository_SearchSimilar_Integration(t *testing.T) {
 	t.Run("nonexistent_user_returns_empty_results", func(t *testing.T) {
 		nonexistentUser := user.ID(uuid.New())
 		queryEmbedding := []float32{0.1, 0.2, 0.3, 0.4}
-		
+
 		results, err := repo.SearchSimilar(ctx, queryEmbedding, nonexistentUser, 5, 0.8)
-		
+
 		require.NoError(t, err)
 		assert.Empty(t, results)
 	})
@@ -173,9 +173,9 @@ func TestPostgresRepository_SearchSimilar_Integration(t *testing.T) {
 	t.Run("limit_is_respected", func(t *testing.T) {
 		queryEmbedding := []float32{0.12, 0.21, 0.31, 0.39}
 		limit := 1
-		
+
 		results, err := repo.SearchSimilar(ctx, queryEmbedding, testUserID, limit, 0.3)
-		
+
 		require.NoError(t, err)
 		assert.True(t, len(results) <= limit, "Should not exceed the specified limit")
 	})
@@ -190,19 +190,19 @@ func TestPostgresRepository_VectorOperations_Integration(t *testing.T) {
 
 	t.Run("store_and_retrieve_with_embedding", func(t *testing.T) {
 		embedding := []float32{0.1, 0.2, 0.3, 0.4, 0.5}
-		
+
 		mem := &memory.Memory{
-			ID:        memory.NewID(),
-			UserID:    testUserID,
-			Content:   "Test content with embedding",
-			Summary:   "Test summary",
-			Embedding: embedding,
+			ID:         memory.NewID(),
+			UserID:     testUserID,
+			Content:    "Test content with embedding",
+			Summary:    "Test summary",
+			Embedding:  embedding,
 			Importance: 5,
 			MemoryType: "test",
-			Tags:      []string{"test", "embedding"},
-			Metadata:  map[string]interface{}{"source": "test"},
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
+			Tags:       []string{"test", "embedding"},
+			Metadata:   map[string]interface{}{"source": "test"},
+			CreatedAt:  time.Now(),
+			UpdatedAt:  time.Now(),
 		}
 
 		// Store memory
@@ -226,17 +226,17 @@ func TestPostgresRepository_VectorOperations_Integration(t *testing.T) {
 	t.Run("update_embedding", func(t *testing.T) {
 		originalEmbedding := []float32{0.1, 0.2, 0.3}
 		updatedEmbedding := []float32{0.4, 0.5, 0.6}
-		
+
 		mem := &memory.Memory{
-			ID:        memory.NewID(),
-			UserID:    testUserID,
-			Content:   "Test content for embedding update",
-			Summary:   "Test summary",
-			Embedding: originalEmbedding,
+			ID:         memory.NewID(),
+			UserID:     testUserID,
+			Content:    "Test content for embedding update",
+			Summary:    "Test summary",
+			Embedding:  originalEmbedding,
 			Importance: 5,
 			MemoryType: "test",
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
+			CreatedAt:  time.Now(),
+			UpdatedAt:  time.Now(),
 		}
 
 		// Store memory
@@ -263,15 +263,15 @@ func TestPostgresRepository_VectorOperations_Integration(t *testing.T) {
 
 	t.Run("memory_without_embedding", func(t *testing.T) {
 		mem := &memory.Memory{
-			ID:        memory.NewID(),
-			UserID:    testUserID,
-			Content:   "Test content without embedding",
-			Summary:   "Test summary",
-			Embedding: nil, // No embedding
+			ID:         memory.NewID(),
+			UserID:     testUserID,
+			Content:    "Test content without embedding",
+			Summary:    "Test summary",
+			Embedding:  nil, // No embedding
 			Importance: 5,
 			MemoryType: "test",
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
+			CreatedAt:  time.Now(),
+			UpdatedAt:  time.Now(),
 		}
 
 		// Store memory
@@ -308,12 +308,12 @@ func TestPostgresRepository_VectorOperations_Integration(t *testing.T) {
 func BenchmarkPostgresRepository_SearchSimilar(b *testing.B) {
 	// Skip benchmark if database is not available
 	dbConfig := &configs.DatabaseConfig{
-		Host:     getEnv("TEST_DB_HOST", "localhost"),
-		Port:     5432,
-		User:     getEnv("TEST_DB_USER", "test_user"),
-		Password: getEnv("TEST_DB_PASSWORD", "test_password"),
-		DBName:   getEnv("TEST_DB_NAME", "test_mem_bank"),
-		SSLMode:  "disable",
+		Host:         getEnv("TEST_DB_HOST", "localhost"),
+		Port:         5432,
+		User:         getEnv("TEST_DB_USER", "test_user"),
+		Password:     getEnv("TEST_DB_PASSWORD", "test_password"),
+		DBName:       getEnv("TEST_DB_NAME", "test_mem_bank"),
+		SSLMode:      "disable",
 		MaxOpenConns: 10,
 		MaxIdleConns: 5,
 		MaxLifetime:  5 * time.Minute,
@@ -338,15 +338,15 @@ func BenchmarkPostgresRepository_SearchSimilar(b *testing.B) {
 		}
 
 		memories[i] = &memory.Memory{
-			ID:        memory.NewID(),
-			UserID:    testUserID,
-			Content:   fmt.Sprintf("Test memory content %d", i),
-			Summary:   fmt.Sprintf("Summary %d", i),
-			Embedding: embedding,
+			ID:         memory.NewID(),
+			UserID:     testUserID,
+			Content:    fmt.Sprintf("Test memory content %d", i),
+			Summary:    fmt.Sprintf("Summary %d", i),
+			Embedding:  embedding,
 			Importance: 5,
 			MemoryType: "test",
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
+			CreatedAt:  time.Now(),
+			UpdatedAt:  time.Now(),
 		}
 
 		repo.Store(ctx, memories[i])

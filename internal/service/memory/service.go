@@ -7,19 +7,25 @@ import (
 
 	"mem_bank/internal/domain/memory"
 	"mem_bank/internal/domain/user"
+	"mem_bank/internal/service/embedding"
+	"mem_bank/pkg/logger"
 )
 
 // service implements memory.Service interface
 type service struct {
-	repo     memory.Repository
-	userRepo user.Repository
+	repo             memory.Repository
+	userRepo         user.Repository
+	embeddingService *embedding.Service
+	logger           logger.Logger
 }
 
 // NewService creates a new memory service
-func NewService(repo memory.Repository, userRepo user.Repository) memory.Service {
+func NewService(repo memory.Repository, userRepo user.Repository, embeddingService *embedding.Service, logger logger.Logger) memory.Service {
 	return &service{
-		repo:     repo,
-		userRepo: userRepo,
+		repo:             repo,
+		userRepo:         userRepo,
+		embeddingService: embeddingService,
+		logger:           logger,
 	}
 }
 
@@ -49,8 +55,16 @@ func (s *service) CreateMemory(ctx context.Context, req memory.CreateRequest) (*
 		m.Metadata = req.Metadata
 	}
 
-	// TODO: Generate embedding for the content
-	// For now, we'll leave it empty until we implement the embedding service
+	// Generate embedding for the content
+	if s.embeddingService != nil {
+		embeddingResult, err := s.embeddingService.GenerateEmbedding(ctx, req.Content)
+		if err != nil {
+			s.logger.WithError(err).Warn("Failed to generate embedding for memory")
+			// Continue without embedding - this is not a fatal error
+		} else {
+			m.UpdateEmbedding(embeddingResult.Embedding)
+		}
+	}
 
 	// Store memory
 	if err := s.repo.Store(ctx, m); err != nil {
@@ -75,7 +89,7 @@ func (s *service) GetMemory(ctx context.Context, id memory.ID) (*memory.Memory, 
 	m.Access()
 	if err := s.repo.UpdateAccessInfo(ctx, id); err != nil {
 		// Log error but don't fail the request
-		fmt.Printf("Warning: failed to update access info for memory %s: %v\n", id, err)
+		s.logger.WithError(err).WithField("memory_id", id.String()).Warn("Failed to update access info")
 	}
 
 	return m, nil
@@ -121,7 +135,16 @@ func (s *service) UpdateMemory(ctx context.Context, id memory.ID, req memory.Upd
 
 		m.Update(content, summary, importance, tags, metadata)
 
-		// TODO: Regenerate embedding if content changed
+		// Regenerate embedding if content changed
+		if req.Content != nil && s.embeddingService != nil {
+			embeddingResult, err := s.embeddingService.GenerateEmbedding(ctx, *req.Content)
+			if err != nil {
+				s.logger.WithError(err).Warn("Failed to regenerate embedding for updated memory")
+				// Continue without updating embedding - this is not a fatal error
+			} else {
+				m.UpdateEmbedding(embeddingResult.Embedding)
+			}
+		}
 	}
 
 	if req.MemoryType != nil {
@@ -202,9 +225,20 @@ func (s *service) SearchSimilarMemories(ctx context.Context, content string, use
 		threshold = 0.8 // default threshold
 	}
 
-	// TODO: Generate embedding for content and search
-	// For now, return empty results until embedding service is implemented
-	return []*memory.Memory{}, nil
+	// Generate embedding for content
+	if s.embeddingService == nil {
+		s.logger.Warn("Embedding service not available for similarity search")
+		return []*memory.Memory{}, nil
+	}
+
+	embeddingResult, err := s.embeddingService.GenerateEmbedding(ctx, content)
+	if err != nil {
+		s.logger.WithError(err).Error("Failed to generate embedding for similarity search")
+		return nil, fmt.Errorf("generating embedding: %w", err)
+	}
+
+	// Search for similar memories
+	return s.repo.SearchSimilar(ctx, embeddingResult.Embedding, userID, limit, threshold)
 }
 
 func (s *service) GetMemoryStats(ctx context.Context, userID user.ID) (*memory.Stats, error) {

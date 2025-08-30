@@ -70,19 +70,19 @@ func (h *GenerateEmbeddingHandler) Handle(ctx context.Context, job *Job) (*JobRe
 	}
 
 	h.logger.WithFields(map[string]interface{}{
-		"memory_id":    mem.ID.String(),
+		"memory_id":     mem.ID.String(),
 		"embedding_dim": len(embeddingResult.Embedding),
-		"model":        embeddingResult.Model,
-		"cached":       embeddingResult.Cached,
+		"model":         embeddingResult.Model,
+		"cached":        embeddingResult.Cached,
 	}).Info("Memory embedding generated and updated")
 
 	return &JobResult{
 		Result: map[string]interface{}{
-			"memory_id":      mem.ID.String(),
-			"embedding_dim":  len(embeddingResult.Embedding),
-			"model":          embeddingResult.Model,
-			"cached":         embeddingResult.Cached,
-			"token_usage":    embeddingResult,
+			"memory_id":     mem.ID.String(),
+			"embedding_dim": len(embeddingResult.Embedding),
+			"model":         embeddingResult.Model,
+			"cached":        embeddingResult.Cached,
+			"token_usage":   embeddingResult,
 		},
 	}, nil
 }
@@ -141,7 +141,7 @@ func (h *BatchEmbeddingHandler) Handle(ctx context.Context, job *Job) (*JobResul
 		return &JobResult{
 			Result: map[string]interface{}{
 				"processed_count": 0,
-				"message":        "No memories found without embeddings",
+				"message":         "No memories found without embeddings",
 			},
 		}, nil
 	}
@@ -172,9 +172,9 @@ func (h *BatchEmbeddingHandler) Handle(ctx context.Context, job *Job) (*JobResul
 	}
 
 	h.logger.WithFields(map[string]interface{}{
-		"user_id":        userID.String(),
+		"user_id":         userID.String(),
 		"processed_count": updatedCount,
-		"total_usage":    batchResult.Usage,
+		"total_usage":     batchResult.Usage,
 	}).Info("Batch embeddings generated and updated")
 
 	return &JobResult{

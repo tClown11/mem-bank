@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"os"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gen"
@@ -10,8 +11,16 @@ import (
 )
 
 func main() {
-	// Initialize GORM connection
-	dsn := "host=192.168.64.23 user=mem_bank_user password=mem_bank_password dbname=mem_bank port=30432 sslmode=disable TimeZone=UTC"
+	// Initialize GORM connection from environment variables
+	host := getEnvWithDefault("GEN_DB_HOST", "localhost")
+	port := getEnvWithDefault("GEN_DB_PORT", "5432")
+	user := getEnvWithDefault("GEN_DB_USER", "mem_bank_user")
+	password := getEnvWithDefault("GEN_DB_PASSWORD", "mem_bank_password")
+	dbname := getEnvWithDefault("GEN_DB_NAME", "mem_bank")
+	sslmode := getEnvWithDefault("GEN_DB_SSLMODE", "disable")
+
+	dsn := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s TimeZone=UTC",
+		host, port, user, password, dbname, sslmode)
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
@@ -33,16 +42,19 @@ func main() {
 		g.GenerateAllTable()...,
 	)
 
-	// Apply custom methods to User model
-	user := g.GenerateModel("users", gen.FieldType("last_login", "*time.Time"))
-	memory := g.GenerateModel("memories",
-		gen.FieldType("last_login", "*time.Time"),
-		gen.FieldIgnore("embedding")) // Skip embedding field for now
-
-	g.ApplyBasic(user, memory)
+	// Apply custom methods to specific models
+	g.ApplyInterface(func() {}, g.GenerateModel("users"), g.GenerateModel("memories"))
 
 	// Execute the generator
 	g.Execute()
 
 	fmt.Println("GORM Gen code generation completed!")
+}
+
+// getEnvWithDefault gets environment variable with default value
+func getEnvWithDefault(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
 }

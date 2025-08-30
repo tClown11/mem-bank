@@ -1,47 +1,34 @@
 package middleware
 
 import (
-	"net/http"
-
 	"github.com/gin-gonic/gin"
 	"mem_bank/pkg/logger"
+	"mem_bank/pkg/response"
 )
 
 // ErrorHandler middleware for centralized error handling
 func ErrorHandler(appLogger logger.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Next()
-		
+
 		// Handle any errors that occurred during request processing
 		if len(c.Errors) > 0 {
 			err := c.Errors.Last()
-			
+
 			appLogger.WithError(err.Err).WithFields(map[string]interface{}{
 				"method": c.Request.Method,
 				"path":   c.Request.URL.Path,
 				"ip":     c.ClientIP(),
 			}).Error("Request processing error")
-			
-			// Return appropriate error response
+
+			// Return appropriate error response using standardized format
 			switch err.Type {
 			case gin.ErrorTypeBind:
-				c.JSON(http.StatusBadRequest, gin.H{
-					"error":   "Invalid request format",
-					"code":    "invalid_request",
-					"message": err.Error(),
-				})
+				response.BadRequest(c, "invalid_request", "Invalid request format: "+err.Error())
 			case gin.ErrorTypePublic:
-				c.JSON(http.StatusBadRequest, gin.H{
-					"error":   "Request validation failed",
-					"code":    "validation_error",
-					"message": err.Error(),
-				})
+				response.BadRequest(c, "validation_error", "Request validation failed: "+err.Error())
 			default:
-				c.JSON(http.StatusInternalServerError, gin.H{
-					"error":   "Internal server error",
-					"code":    "internal_error",
-					"message": "An unexpected error occurred",
-				})
+				response.InternalError(c, "An unexpected error occurred")
 			}
 		}
 	}
@@ -56,11 +43,7 @@ func Recovery(appLogger logger.Logger) gin.HandlerFunc {
 			"ip":     c.ClientIP(),
 			"panic":  recovered,
 		}).Error("Request panic recovered")
-		
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Internal server error",
-			"code":    "panic_recovered",
-			"message": "An unexpected error occurred",
-		})
+
+		response.InternalError(c, "An unexpected error occurred during request processing")
 	})
 }

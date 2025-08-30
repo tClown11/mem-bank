@@ -26,21 +26,21 @@ type CompletionRequest struct {
 
 // CompletionResponse represents the response from text completion
 type CompletionResponse struct {
-	Content   string    `json:"content"`
+	Content   string     `json:"content"`
 	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
-	Model     string    `json:"model"`
-	Usage     Usage     `json:"usage"`
+	Model     string     `json:"model"`
+	Usage     Usage      `json:"usage"`
 }
 
 // Message represents a chat message
 type Message struct {
-	Role    string `json:"role"`    // "system", "user", "assistant"
+	Role    string `json:"role"` // "system", "user", "assistant"
 	Content string `json:"content"`
 }
 
 // Tool represents a tool/function that can be called by the LLM
 type Tool struct {
-	Type     string   `json:"type"`     // "function"
+	Type     string   `json:"type"` // "function"
 	Function Function `json:"function"`
 }
 
@@ -72,10 +72,10 @@ type Usage struct {
 type EmbeddingProvider interface {
 	// GenerateEmbeddings generates embeddings for the given texts
 	GenerateEmbeddings(ctx context.Context, req *EmbeddingRequest) (*EmbeddingResponse, error)
-	
+
 	// GetEmbeddingDimension returns the dimension of embeddings for the given model
 	GetEmbeddingDimension(model string) int
-	
+
 	// GetDefaultModel returns the default embedding model
 	GetDefaultModel() string
 }
@@ -84,7 +84,7 @@ type EmbeddingProvider interface {
 type CompletionProvider interface {
 	// GenerateCompletion generates text completion for the given messages
 	GenerateCompletion(ctx context.Context, req *CompletionRequest) (*CompletionResponse, error)
-	
+
 	// GetDefaultModel returns the default completion model
 	GetDefaultModel() string
 }
@@ -93,10 +93,10 @@ type CompletionProvider interface {
 type Provider interface {
 	EmbeddingProvider
 	CompletionProvider
-	
+
 	// Name returns the provider name
 	Name() string
-	
+
 	// IsHealthy checks if the provider is healthy and accessible
 	IsHealthy(ctx context.Context) error
 }
@@ -105,25 +105,25 @@ type Provider interface {
 type Config struct {
 	// Provider type (e.g., "openai", "azure", "local")
 	Provider string `mapstructure:"provider"`
-	
+
 	// API key for authenticated providers
 	APIKey string `mapstructure:"api_key"`
-	
+
 	// Base URL for the API (optional, uses default if not set)
 	BaseURL string `mapstructure:"base_url"`
-	
+
 	// Default embedding model
 	EmbeddingModel string `mapstructure:"embedding_model"`
-	
+
 	// Default completion model
 	CompletionModel string `mapstructure:"completion_model"`
-	
+
 	// Request timeout in seconds
 	TimeoutSeconds int `mapstructure:"timeout_seconds"`
-	
+
 	// Maximum retries for failed requests
 	MaxRetries int `mapstructure:"max_retries"`
-	
+
 	// Rate limiting - requests per minute
 	RateLimit int `mapstructure:"rate_limit"`
 }
@@ -141,9 +141,9 @@ func (e *Error) Error() string {
 
 // Common error types
 var (
-	ErrInvalidAPIKey    = &Error{Type: "invalid_api_key", Message: "invalid API key"}
-	ErrRateLimitExceeded = &Error{Type: "rate_limit_exceeded", Message: "rate limit exceeded"}
-	ErrModelNotFound    = &Error{Type: "model_not_found", Message: "model not found"}
-	ErrInvalidRequest   = &Error{Type: "invalid_request", Message: "invalid request"}
+	ErrInvalidAPIKey      = &Error{Type: "invalid_api_key", Message: "invalid API key"}
+	ErrRateLimitExceeded  = &Error{Type: "rate_limit_exceeded", Message: "rate limit exceeded"}
+	ErrModelNotFound      = &Error{Type: "model_not_found", Message: "model not found"}
+	ErrInvalidRequest     = &Error{Type: "invalid_request", Message: "invalid request"}
 	ErrServiceUnavailable = &Error{Type: "service_unavailable", Message: "service unavailable"}
 )

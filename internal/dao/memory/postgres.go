@@ -117,21 +117,100 @@ func (r *postgresRepository) SearchSimilar(ctx context.Context, embedding []floa
 
 	// Convert float32 slice to pgvector.Vector
 	vec := pgvector.NewVector(embedding)
-	
+
 	// Query for similar vectors using cosine similarity
 	// We use 1 - (embedding <=> ?) as similarity score (higher is more similar)
 	// and filter by threshold (similarity >= threshold means 1 - cosine_distance >= threshold)
 	var gormMemories []*model.Memory
-	
+
 	query := r.db.WithContext(ctx).
 		Where("user_id = ? AND embedding IS NOT NULL", userID.String()).
 		Where("1 - (embedding <=> ?) >= ?", vec, threshold).
 		Order(gorm.Expr("embedding <=> ?", vec)). // Order by cosine distance (ascending = most similar first)
 		Limit(limit)
-	
+
 	err := query.Find(&gormMemories).Error
 	if err != nil {
 		return nil, fmt.Errorf("searching similar memories: %w", err)
+	}
+
+	memories := make([]*memory.Memory, 0, len(gormMemories))
+	for _, gormMemory := range gormMemories {
+		m, err := r.toDomain(gormMemory)
+		if err != nil {
+			return nil, fmt.Errorf("converting memory: %w", err)
+		}
+		memories = append(memories, m)
+	}
+
+	return memories, nil
+}
+
+func (r *postgresRepository) SearchSimilarWithScores(ctx context.Context, embedding []float32, userID user.ID, limit int, threshold float64) ([]*memory.MemoryWithScore, error) {
+	if len(embedding) == 0 {
+		return []*memory.MemoryWithScore{}, nil
+	}
+
+	// Convert float32 slice to pgvector.Vector
+	vec := pgvector.NewVector(embedding)
+
+	// Query for similar vectors with scores
+	var results []struct {
+		Memory model.Memory
+		Score  float64
+	}
+
+	query := r.db.WithContext(ctx).
+		Select("*, 1 - (embedding <=> ?) AS score", vec).
+		Where("user_id = ? AND embedding IS NOT NULL", userID.String()).
+		Where("1 - (embedding <=> ?) >= ?", vec, threshold).
+		Order("score DESC"). // Order by similarity score descending (most similar first)
+		Limit(limit)
+
+	err := query.Find(&results).Error
+	if err != nil {
+		return nil, fmt.Errorf("searching similar memories with scores: %w", err)
+	}
+
+	memoriesWithScores := make([]*memory.MemoryWithScore, 0, len(results))
+	for _, result := range results {
+		m, err := r.toDomain(&result.Memory)
+		if err != nil {
+			return nil, fmt.Errorf("converting memory: %w", err)
+		}
+		memoriesWithScores = append(memoriesWithScores, &memory.MemoryWithScore{
+			Memory: m,
+			Score:  result.Score,
+		})
+	}
+
+	return memoriesWithScores, nil
+}
+
+func (r *postgresRepository) SearchSimilarByMemory(ctx context.Context, memoryID memory.ID, userID user.ID, limit int, threshold float64) ([]*memory.Memory, error) {
+	// First, get the source memory's embedding
+	sourceMemory, err := r.FindByID(ctx, memoryID)
+	if err != nil {
+		return nil, fmt.Errorf("finding source memory: %w", err)
+	}
+
+	if len(sourceMemory.Embedding) == 0 {
+		return []*memory.Memory{}, fmt.Errorf("source memory has no embedding")
+	}
+
+	// Search for similar memories, excluding the source memory itself
+	vec := pgvector.NewVector(sourceMemory.Embedding)
+	var gormMemories []*model.Memory
+
+	query := r.db.WithContext(ctx).
+		Where("user_id = ? AND embedding IS NOT NULL AND id != ?", userID.String(), memoryID.String()).
+		Where("1 - (embedding <=> ?) >= ?", vec, threshold).
+		Order(gorm.Expr("embedding <=> ?", vec)). // Order by cosine distance (ascending = most similar first)
+		Limit(limit)
+
+	err = query.Find(&gormMemories).Error
+	if err != nil {
+		return nil, fmt.Errorf("searching similar memories by memory: %w", err)
 	}
 
 	memories := make([]*memory.Memory, 0, len(gormMemories))
@@ -379,4 +458,115 @@ func (r *postgresRepository) toDomain(gormMemory *model.Memory) (*memory.Memory,
 	}
 
 	return m, nil
+}
+
+// BatchStore creates multiple memories in a single transaction for better performance
+func (r *postgresRepository) BatchStore(ctx context.Context, memories []*memory.Memory) error {
+	if len(memories) == 0 {
+		return nil
+	}
+
+	models := make([]*model.Memory, 0, len(memories))
+	for _, m := range memories {
+		model, err := r.toModel(m)
+		if err != nil {
+			return fmt.Errorf("converting memory to model: %w", err)
+		}
+		models = append(models, model)
+	}
+
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		batchSize := 100 // Process in batches to avoid memory issues
+		for i := 0; i < len(models); i += batchSize {
+			end := i + batchSize
+			if end > len(models) {
+				end = len(models)
+			}
+
+			if err := tx.Create(models[i:end]).Error; err != nil {
+				return fmt.Errorf("batch creating memories (batch %d): %w", i/batchSize+1, err)
+			}
+		}
+		return nil
+	})
+}
+
+// BatchUpdate updates multiple memories in a single transaction for better performance
+func (r *postgresRepository) BatchUpdate(ctx context.Context, memories []*memory.Memory) error {
+	if len(memories) == 0 {
+		return nil
+	}
+
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		for _, m := range memories {
+			model, err := r.toModel(m)
+			if err != nil {
+				return fmt.Errorf("converting memory to model: %w", err)
+			}
+
+			result := tx.Where("id = ?", m.ID.String()).Updates(model)
+			if result.Error != nil {
+				return fmt.Errorf("updating memory %s: %w", m.ID.String(), result.Error)
+			}
+			if result.RowsAffected == 0 {
+				return fmt.Errorf("memory %s not found for update", m.ID.String())
+			}
+		}
+		return nil
+	})
+}
+
+// BatchDelete removes multiple memories by their IDs in a single transaction
+func (r *postgresRepository) BatchDelete(ctx context.Context, ids []memory.ID) error {
+	if len(ids) == 0 {
+		return nil
+	}
+
+	stringIDs := make([]string, 0, len(ids))
+	for _, id := range ids {
+		stringIDs = append(stringIDs, id.String())
+	}
+
+	result := r.db.WithContext(ctx).Where("id IN ?", stringIDs).Delete(&model.Memory{})
+	if result.Error != nil {
+		return fmt.Errorf("batch deleting memories: %w", result.Error)
+	}
+
+	if int(result.RowsAffected) != len(ids) {
+		return fmt.Errorf("expected to delete %d memories, but deleted %d", len(ids), result.RowsAffected)
+	}
+
+	return nil
+}
+
+// BatchUpdateEmbeddings updates embeddings for multiple memories efficiently
+func (r *postgresRepository) BatchUpdateEmbeddings(ctx context.Context, updates []memory.EmbeddingUpdate) error {
+	if len(updates) == 0 {
+		return nil
+	}
+
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		for _, update := range updates {
+			// Convert embedding to pgvector format
+			var embedding pgvector.Vector
+			if len(update.Embedding) > 0 {
+				embedding = pgvector.NewVector(update.Embedding)
+			}
+
+			result := tx.Model(&model.Memory{}).
+				Where("id = ?", update.ID.String()).
+				Updates(map[string]interface{}{
+					"embedding":  embedding,
+					"updated_at": time.Now(),
+				})
+
+			if result.Error != nil {
+				return fmt.Errorf("updating embedding for memory %s: %w", update.ID.String(), result.Error)
+			}
+			if result.RowsAffected == 0 {
+				return fmt.Errorf("memory %s not found for embedding update", update.ID.String())
+			}
+		}
+		return nil
+	})
 }

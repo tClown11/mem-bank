@@ -7,8 +7,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 
-	"mem_bank/internal/domain/user"
 	userDao "mem_bank/internal/dao/user"
+	"mem_bank/internal/domain/user"
 	userService "mem_bank/internal/service/user"
 	"mem_bank/tests/testutil"
 )

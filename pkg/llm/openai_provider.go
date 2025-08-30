@@ -19,7 +19,7 @@ type OpenAIProvider struct {
 // NewOpenAIProvider creates a new OpenAI provider instance
 func NewOpenAIProvider(config *Config) *OpenAIProvider {
 	client := openai.NewClient(config.APIKey)
-	
+
 	// Set custom base URL if provided
 	if config.BaseURL != "" {
 		clientConfig := openai.DefaultConfig(config.APIKey)

@@ -26,6 +26,12 @@ type Repository interface {
 	// SearchSimilar finds similar memories based on embedding vector
 	SearchSimilar(ctx context.Context, embedding []float32, userID user.ID, limit int, threshold float64) ([]*Memory, error)
 
+	// SearchSimilarWithScores finds similar memories with similarity scores
+	SearchSimilarWithScores(ctx context.Context, embedding []float32, userID user.ID, limit int, threshold float64) ([]*MemoryWithScore, error)
+
+	// SearchSimilarByMemory finds memories similar to a given memory
+	SearchSimilarByMemory(ctx context.Context, memoryID ID, userID user.ID, limit int, threshold float64) ([]*Memory, error)
+
 	// SearchByContent searches memories by content text
 	SearchByContent(ctx context.Context, query string, userID user.ID, limit, offset int) ([]*Memory, error)
 
@@ -40,4 +46,10 @@ type Repository interface {
 
 	// CountByUserID returns the total number of memories for a user
 	CountByUserID(ctx context.Context, userID user.ID) (int, error)
+
+	// Batch operations for better performance
+	BatchStore(ctx context.Context, memories []*Memory) error
+	BatchUpdate(ctx context.Context, memories []*Memory) error
+	BatchDelete(ctx context.Context, ids []ID) error
+	BatchUpdateEmbeddings(ctx context.Context, updates []EmbeddingUpdate) error
 }

@@ -20,7 +20,7 @@ func TestOpenAIProvider_New(t *testing.T) {
 	}
 
 	provider := NewOpenAIProvider(config)
-	
+
 	assert.NotNil(t, provider)
 	assert.Equal(t, "openai", provider.Name())
 	assert.Equal(t, "text-embedding-ada-002", provider.GetDefaultModel())
@@ -28,7 +28,7 @@ func TestOpenAIProvider_New(t *testing.T) {
 
 func TestOpenAIProvider_GetEmbeddingDimension(t *testing.T) {
 	provider := NewOpenAIProvider(&Config{})
-	
+
 	testCases := []struct {
 		model    string
 		expected int
@@ -70,7 +70,7 @@ func TestOpenAIProvider_GenerateEmbeddings_Integration(t *testing.T) {
 		}
 
 		resp, err := provider.GenerateEmbeddings(ctx, req)
-		
+
 		require.NoError(t, err)
 		require.NotNil(t, resp)
 		assert.Len(t, resp.Embeddings, 1)
@@ -89,15 +89,15 @@ func TestOpenAIProvider_GenerateEmbeddings_Integration(t *testing.T) {
 		}
 
 		resp, err := provider.GenerateEmbeddings(ctx, req)
-		
+
 		require.NoError(t, err)
 		require.NotNil(t, resp)
 		assert.Len(t, resp.Embeddings, 3)
-		
+
 		for _, embedding := range resp.Embeddings {
 			assert.Len(t, embedding, 1536)
 		}
-		
+
 		assert.NotEmpty(t, resp.Model)
 		assert.Greater(t, resp.Usage.TotalTokens, 0)
 	})
@@ -108,7 +108,7 @@ func TestOpenAIProvider_GenerateEmbeddings_Integration(t *testing.T) {
 		}
 
 		resp, err := provider.GenerateEmbeddings(ctx, req)
-		
+
 		// OpenAI API should return an error for empty input
 		assert.Error(t, err)
 		assert.Nil(t, resp)
@@ -140,7 +140,7 @@ func TestOpenAIProvider_GenerateCompletion_Integration(t *testing.T) {
 		}
 
 		resp, err := provider.GenerateCompletion(ctx, req)
-		
+
 		require.NoError(t, err)
 		require.NotNil(t, resp)
 		assert.NotEmpty(t, resp.Content)
@@ -158,7 +158,7 @@ func TestOpenAIProvider_GenerateCompletion_Integration(t *testing.T) {
 		}
 
 		resp, err := provider.GenerateCompletion(ctx, req)
-		
+
 		require.NoError(t, err)
 		require.NotNil(t, resp)
 		assert.NotEmpty(t, resp.Content)

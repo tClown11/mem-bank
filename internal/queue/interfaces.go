@@ -44,16 +44,16 @@ type JobResult struct {
 type Producer interface {
 	// Enqueue adds a job to the queue
 	Enqueue(ctx context.Context, job *Job) error
-	
+
 	// EnqueueBatch adds multiple jobs to the queue
 	EnqueueBatch(ctx context.Context, jobs []*Job) error
-	
+
 	// GetJob retrieves a job by ID
 	GetJob(ctx context.Context, jobID string) (*Job, error)
-	
+
 	// GetJobResult retrieves the result of a processed job
 	GetJobResult(ctx context.Context, jobID string) (*JobResult, error)
-	
+
 	// Close closes the producer
 	Close() error
 }
@@ -62,13 +62,13 @@ type Producer interface {
 type Consumer interface {
 	// StartConsuming starts consuming jobs from the queue
 	StartConsuming(ctx context.Context, concurrency int) error
-	
+
 	// RegisterHandler registers a job handler for a specific job type
 	RegisterHandler(jobType string, handler JobHandler)
-	
+
 	// StopConsuming stops consuming jobs
 	StopConsuming() error
-	
+
 	// Close closes the consumer
 	Close() error
 }
@@ -77,10 +77,10 @@ type Consumer interface {
 type JobHandler interface {
 	// Handle processes a job and returns the result
 	Handle(ctx context.Context, job *Job) (*JobResult, error)
-	
+
 	// Name returns the handler name
 	Name() string
-	
+
 	// JobType returns the job type this handler processes
 	JobType() string
 }
@@ -104,13 +104,13 @@ type Stats struct {
 type Monitor interface {
 	// GetStats returns queue statistics
 	GetStats(ctx context.Context) (*Stats, error)
-	
+
 	// GetFailedJobs returns a list of failed jobs
 	GetFailedJobs(ctx context.Context, limit, offset int) ([]*Job, error)
-	
+
 	// RetryFailedJob retries a failed job
 	RetryFailedJob(ctx context.Context, jobID string) error
-	
+
 	// PurgeCompletedJobs removes completed jobs older than the specified duration
 	PurgeCompletedJobs(ctx context.Context, olderThan time.Duration) (int64, error)
 }
@@ -121,20 +121,20 @@ type Config struct {
 	RedisAddr     string `mapstructure:"redis_addr"`
 	RedisPassword string `mapstructure:"redis_password"`
 	RedisDB       int    `mapstructure:"redis_db"`
-	
+
 	// Queue settings
-	QueueName        string        `mapstructure:"queue_name"`
-	MaxRetries       int           `mapstructure:"max_retries"`
-	RetryDelay       time.Duration `mapstructure:"retry_delay"`
-	JobTimeout       time.Duration `mapstructure:"job_timeout"`
-	ResultTTL        time.Duration `mapstructure:"result_ttl"`
-	CleanupInterval  time.Duration `mapstructure:"cleanup_interval"`
-	
+	QueueName       string        `mapstructure:"queue_name"`
+	MaxRetries      int           `mapstructure:"max_retries"`
+	RetryDelay      time.Duration `mapstructure:"retry_delay"`
+	JobTimeout      time.Duration `mapstructure:"job_timeout"`
+	ResultTTL       time.Duration `mapstructure:"result_ttl"`
+	CleanupInterval time.Duration `mapstructure:"cleanup_interval"`
+
 	// Consumer settings
 	DefaultConcurrency int           `mapstructure:"default_concurrency"`
 	PollInterval       time.Duration `mapstructure:"poll_interval"`
-	
+
 	// Monitoring settings
-	StatsEnabled      bool          `mapstructure:"stats_enabled"`
+	StatsEnabled        bool          `mapstructure:"stats_enabled"`
 	StatsUpdateInterval time.Duration `mapstructure:"stats_update_interval"`
 }

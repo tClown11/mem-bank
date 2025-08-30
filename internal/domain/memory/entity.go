@@ -114,3 +114,15 @@ func (m *Memory) HasTag(tag string) bool {
 	}
 	return false
 }
+
+// EmbeddingUpdate represents an embedding update operation for batch processing
+type EmbeddingUpdate struct {
+	ID        ID        `json:"id"`
+	Embedding []float32 `json:"embedding"`
+}
+
+// MemoryWithScore represents a memory with its similarity score
+type MemoryWithScore struct {
+	Memory *Memory `json:"memory"`
+	Score  float64 `json:"score"`
+}

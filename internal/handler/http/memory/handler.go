@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 
@@ -9,17 +10,20 @@ import (
 
 	"mem_bank/internal/domain/memory"
 	"mem_bank/internal/domain/user"
+	"mem_bank/pkg/logger"
 )
 
 // Handler handles HTTP requests for memory operations
 type Handler struct {
 	service memory.Service
+	logger  logger.Logger
 }
 
 // NewHandler creates a new memory HTTP handler
-func NewHandler(service memory.Service) *Handler {
+func NewHandler(service memory.Service, logger logger.Logger) *Handler {
 	return &Handler{
 		service: service,
+		logger:  logger,
 	}
 }
 
@@ -53,16 +57,50 @@ type SearchMemoryRequest struct {
 	Offset     int      `json:"offset"`
 }
 
+// BatchCreateRequest represents batch memory creation request
+type BatchCreateRequest struct {
+	Memories []CreateMemoryRequest `json:"memories" binding:"required,dive"`
+}
+
+// StandardResponse represents a standardized API response
+type StandardResponse struct {
+	Success bool        `json:"success"`
+	Data    interface{} `json:"data,omitempty"`
+	Error   *ErrorInfo  `json:"error,omitempty"`
+}
+
+// ErrorInfo provides detailed error information
+type ErrorInfo struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+	Details string `json:"details,omitempty"`
+}
+
+// PaginatedResponse represents a paginated response
+type PaginatedResponse struct {
+	Success bool        `json:"success"`
+	Data    interface{} `json:"data"`
+	Meta    *PageMeta   `json:"meta"`
+	Error   *ErrorInfo  `json:"error,omitempty"`
+}
+
+// PageMeta contains pagination metadata
+type PageMeta struct {
+	Limit  int `json:"limit"`
+	Offset int `json:"offset"`
+	Total  int `json:"total,omitempty"`
+}
+
 func (h *Handler) CreateMemory(c *gin.Context) {
 	var req CreateMemoryRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		h.sendErrorResponse(c, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request data", err.Error())
 		return
 	}
 
 	userID, err := uuid.Parse(req.UserID)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+		h.sendErrorResponse(c, http.StatusBadRequest, "INVALID_USER_ID", "Invalid user ID format", err.Error())
 		return
 	}
 
@@ -79,11 +117,11 @@ func (h *Handler) CreateMemory(c *gin.Context) {
 
 	m, err := h.service.CreateMemory(c.Request.Context(), createReq)
 	if err != nil {
-		h.handleError(c, err)
+		h.handleServiceError(c, err)
 		return
 	}
 
-	c.JSON(http.StatusCreated, h.toResponse(m))
+	h.sendSuccessResponse(c, http.StatusCreated, h.toResponse(m))
 }
 
 func (h *Handler) GetMemory(c *gin.Context) {
@@ -96,11 +134,11 @@ func (h *Handler) GetMemory(c *gin.Context) {
 
 	m, err := h.service.GetMemory(c.Request.Context(), memory.ID(id))
 	if err != nil {
-		h.handleError(c, err)
+		h.handleServiceError(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, h.toResponse(m))
+	h.sendSuccessResponse(c, http.StatusOK, h.toResponse(m))
 }
 
 func (h *Handler) UpdateMemory(c *gin.Context) {
@@ -129,11 +167,11 @@ func (h *Handler) UpdateMemory(c *gin.Context) {
 
 	m, err := h.service.UpdateMemory(c.Request.Context(), memory.ID(id), updateReq)
 	if err != nil {
-		h.handleError(c, err)
+		h.handleServiceError(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, h.toResponse(m))
+	h.sendSuccessResponse(c, http.StatusOK, h.toResponse(m))
 }
 
 func (h *Handler) DeleteMemory(c *gin.Context) {
@@ -146,11 +184,11 @@ func (h *Handler) DeleteMemory(c *gin.Context) {
 
 	err = h.service.DeleteMemory(c.Request.Context(), memory.ID(id))
 	if err != nil {
-		h.handleError(c, err)
+		h.handleServiceError(c, err)
 		return
 	}
 
-	c.JSON(http.StatusNoContent, nil)
+	h.sendSuccessResponse(c, http.StatusNoContent, nil)
 }
 
 func (h *Handler) ListUserMemories(c *gin.Context) {
@@ -176,7 +214,7 @@ func (h *Handler) ListUserMemories(c *gin.Context) {
 
 	memories, err := h.service.ListUserMemories(c.Request.Context(), user.ID(userID), limit, offset)
 	if err != nil {
-		h.handleError(c, err)
+		h.handleServiceError(c, err)
 		return
 	}
 
@@ -185,10 +223,9 @@ func (h *Handler) ListUserMemories(c *gin.Context) {
 		response[i] = h.toResponse(m)
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"memories": response,
-		"limit":    limit,
-		"offset":   offset,
+	h.sendPaginatedResponse(c, response, &PageMeta{
+		Limit:  limit,
+		Offset: offset,
 	})
 }
 
@@ -225,7 +262,7 @@ func (h *Handler) SearchMemories(c *gin.Context) {
 
 	memories, err := h.service.SearchMemories(c.Request.Context(), searchReq)
 	if err != nil {
-		h.handleError(c, err)
+		h.handleServiceError(c, err)
 		return
 	}
 
@@ -234,11 +271,9 @@ func (h *Handler) SearchMemories(c *gin.Context) {
 		response[i] = h.toResponse(m)
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"memories": response,
-		"query":    req.Query,
-		"limit":    req.Limit,
-		"offset":   req.Offset,
+	h.sendPaginatedResponse(c, response, &PageMeta{
+		Limit:  req.Limit,
+		Offset: req.Offset,
 	})
 }
 
@@ -271,7 +306,7 @@ func (h *Handler) SearchSimilarMemories(c *gin.Context) {
 
 	memories, err := h.service.SearchSimilarMemories(c.Request.Context(), content, user.ID(userID), limit, threshold)
 	if err != nil {
-		h.handleError(c, err)
+		h.handleServiceError(c, err)
 		return
 	}
 
@@ -280,7 +315,7 @@ func (h *Handler) SearchSimilarMemories(c *gin.Context) {
 		response[i] = h.toResponse(m)
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	h.sendSuccessResponse(c, http.StatusOK, map[string]interface{}{
 		"memories":  response,
 		"content":   content,
 		"limit":     limit,
@@ -298,24 +333,101 @@ func (h *Handler) GetMemoryStats(c *gin.Context) {
 
 	stats, err := h.service.GetMemoryStats(c.Request.Context(), user.ID(userID))
 	if err != nil {
-		h.handleError(c, err)
+		h.handleServiceError(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, stats)
+	h.sendSuccessResponse(c, http.StatusOK, stats)
 }
 
-func (h *Handler) handleError(c *gin.Context, err error) {
+// Response helper methods
+func (h *Handler) sendSuccessResponse(c *gin.Context, status int, data interface{}) {
+	c.JSON(status, StandardResponse{
+		Success: true,
+		Data:    data,
+	})
+}
+
+func (h *Handler) sendPaginatedResponse(c *gin.Context, data interface{}, meta *PageMeta) {
+	c.JSON(http.StatusOK, PaginatedResponse{
+		Success: true,
+		Data:    data,
+		Meta:    meta,
+	})
+}
+
+func (h *Handler) sendErrorResponse(c *gin.Context, status int, code, message, details string) {
+	h.logger.WithFields(map[string]interface{}{
+		"error_code": code,
+		"message":    message,
+		"details":    details,
+		"path":       c.Request.URL.Path,
+		"method":     c.Request.Method,
+	}).Error("API error occurred")
+
+	c.JSON(status, StandardResponse{
+		Success: false,
+		Error: &ErrorInfo{
+			Code:    code,
+			Message: message,
+			Details: details,
+		},
+	})
+}
+
+func (h *Handler) handleServiceError(c *gin.Context, err error) {
+	// Check for custom service errors
+	var serviceErr *memory.ServiceError
+	if errors.As(err, &serviceErr) {
+		status := h.getStatusFromErrorCode(serviceErr.Code)
+		h.sendErrorResponse(c, status, serviceErr.Code, serviceErr.Message, serviceErr.Error())
+		return
+	}
+
+	// Check for validation errors
+	var validationErr *memory.ValidationError
+	if errors.As(err, &validationErr) {
+		h.sendErrorResponse(c, http.StatusBadRequest, "VALIDATION_ERROR",
+			validationErr.Message, validationErr.Field)
+		return
+	}
+
+	// Handle domain errors
 	switch err {
 	case memory.ErrNotFound:
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-	case memory.ErrInvalidID, memory.ErrInvalidUserID, memory.ErrInvalidContent,
-		memory.ErrInvalidImportance, memory.ErrInvalidMemoryType:
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		h.sendErrorResponse(c, http.StatusNotFound, "NOT_FOUND", "Memory not found", "")
+	case memory.ErrInvalidID:
+		h.sendErrorResponse(c, http.StatusBadRequest, "INVALID_ID", "Invalid memory ID", "")
+	case memory.ErrInvalidUserID:
+		h.sendErrorResponse(c, http.StatusBadRequest, "INVALID_USER_ID", "Invalid user ID", "")
+	case memory.ErrInvalidContent:
+		h.sendErrorResponse(c, http.StatusBadRequest, "INVALID_CONTENT", "Invalid memory content", "")
+	case memory.ErrInvalidImportance:
+		h.sendErrorResponse(c, http.StatusBadRequest, "INVALID_IMPORTANCE", "Invalid importance level", "")
+	case memory.ErrInvalidMemoryType:
+		h.sendErrorResponse(c, http.StatusBadRequest, "INVALID_MEMORY_TYPE", "Invalid memory type", "")
 	case memory.ErrEmbeddingFailed:
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to process memory content"})
+		h.sendErrorResponse(c, http.StatusInternalServerError, "EMBEDDING_ERROR",
+			"Failed to process memory content", "")
 	default:
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
+		h.logger.WithError(err).Error("Unhandled service error")
+		h.sendErrorResponse(c, http.StatusInternalServerError, "INTERNAL_ERROR",
+			"Internal server error", "")
+	}
+}
+
+func (h *Handler) getStatusFromErrorCode(code string) int {
+	switch code {
+	case memory.ErrCodeNotFound:
+		return http.StatusNotFound
+	case memory.ErrCodeInvalidInput:
+		return http.StatusBadRequest
+	case memory.ErrCodePermissionDenied:
+		return http.StatusForbidden
+	case memory.ErrCodeExternalService:
+		return http.StatusBadGateway
+	default:
+		return http.StatusInternalServerError
 	}
 }
 

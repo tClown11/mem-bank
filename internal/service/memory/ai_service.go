@@ -16,13 +16,13 @@ import (
 type AIService struct {
 	// Embedded basic service
 	service
-	
+
 	// AI components
 	embeddingService *embedding.Service
 	jobQueue         queue.Producer
 	jobFactory       *queue.JobFactory
 	logger           logger.Logger
-	
+
 	// Configuration
 	config AIServiceConfig
 }
@@ -31,16 +31,16 @@ type AIService struct {
 type AIServiceConfig struct {
 	// Whether to enable async embedding generation
 	AsyncEmbedding bool `mapstructure:"async_embedding"`
-	
+
 	// Default similarity threshold for searches
 	DefaultSimilarityThreshold float64 `mapstructure:"default_similarity_threshold"`
-	
+
 	// Priority for embedding generation jobs
 	EmbeddingJobPriority int `mapstructure:"embedding_job_priority"`
-	
+
 	// Batch size for bulk embedding generation
 	BatchEmbeddingSize int `mapstructure:"batch_embedding_size"`
-	
+
 	// Whether to auto-generate embeddings on memory creation
 	AutoGenerateEmbeddings bool `mapstructure:"auto_generate_embeddings"`
 }
@@ -159,10 +159,10 @@ func (s *AIService) SearchSimilarMemories(ctx context.Context, content string, u
 	}
 
 	s.logger.WithFields(map[string]interface{}{
-		"user_id":           userID.String(),
-		"search_content":    content[:min(50, len(content))],
-		"threshold":         threshold,
-		"embedding_cached":  embeddingResult.Cached,
+		"user_id":          userID.String(),
+		"search_content":   content[:min(50, len(content))],
+		"threshold":        threshold,
+		"embedding_cached": embeddingResult.Cached,
 	}).Debug("Performing vector similarity search")
 
 	// Search for similar memories
@@ -172,7 +172,7 @@ func (s *AIService) SearchSimilarMemories(ctx context.Context, content string, u
 	}
 
 	s.logger.WithFields(map[string]interface{}{
-		"user_id":      userID.String(),
+		"user_id":       userID.String(),
 		"results_count": len(memories),
 	}).Info("Vector similarity search completed")
 
@@ -187,7 +187,7 @@ func (s *AIService) GenerateEmbeddingsForUser(ctx context.Context, userID user.I
 
 	// Schedule batch embedding generation job
 	job := s.jobFactory.CreateBatchEmbeddingJob(userID, s.config.BatchEmbeddingSize, s.config.EmbeddingJobPriority)
-	
+
 	if err := s.jobQueue.Enqueue(ctx, job); err != nil {
 		return fmt.Errorf("scheduling batch embedding generation: %w", err)
 	}
@@ -225,7 +225,7 @@ func (s *AIService) SearchWithSemanticRanking(ctx context.Context, req memory.Se
 	if req.UserID.IsZero() {
 		return nil, memory.ErrInvalidUserID
 	}
-	
+
 	if req.Limit <= 0 {
 		req.Limit = 20
 	}
@@ -250,7 +250,7 @@ func (s *AIService) SearchWithSemanticRanking(ctx context.Context, req memory.Se
 
 	// Combine and rank results (simplified ranking algorithm)
 	combined := s.combineSearchResults(textResults, semanticResults, semanticWeight)
-	
+
 	// Limit results
 	if len(combined) > req.Limit {
 		combined = combined[:req.Limit]
@@ -287,11 +287,11 @@ func (s *AIService) GetEmbeddingStats(ctx context.Context, userID user.ID) (map[
 	}
 
 	return map[string]interface{}{
-		"total_memories":               totalMemories,
-		"memories_with_embeddings":     memoriesWithEmbeddings,
-		"memories_without_embeddings":  totalMemories - memoriesWithEmbeddings,
-		"embedding_coverage_percent":   float64(memoriesWithEmbeddings) / float64(totalMemories) * 100,
-		"cache_stats":                  embeddingsCacheStats,
+		"total_memories":              totalMemories,
+		"memories_with_embeddings":    memoriesWithEmbeddings,
+		"memories_without_embeddings": totalMemories - memoriesWithEmbeddings,
+		"embedding_coverage_percent":  float64(memoriesWithEmbeddings) / float64(totalMemories) * 100,
+		"cache_stats":                 embeddingsCacheStats,
 	}, nil
 }
 
@@ -299,7 +299,7 @@ func (s *AIService) GetEmbeddingStats(ctx context.Context, userID user.ID) (map[
 
 func (s *AIService) scheduleEmbeddingGeneration(ctx context.Context, memoryID memory.ID) error {
 	job := s.jobFactory.CreateGenerateEmbeddingJob(memoryID, s.config.EmbeddingJobPriority)
-	
+
 	if err := s.jobQueue.Enqueue(ctx, job); err != nil {
 		return fmt.Errorf("enqueuing embedding generation job: %w", err)
 	}
@@ -339,23 +339,23 @@ func (s *AIService) generateEmbeddingSync(ctx context.Context, m *memory.Memory)
 func (s *AIService) combineSearchResults(textResults, semanticResults []*memory.Memory, semanticWeight float64) []*memory.Memory {
 	// Create a map to avoid duplicates and combine scores
 	resultMap := make(map[string]*memory.Memory)
-	
+
 	// Add text results
 	for _, mem := range textResults {
 		resultMap[mem.ID.String()] = mem
 	}
-	
+
 	// Add semantic results (giving preference to semantic results if semanticWeight > 0.5)
 	for _, mem := range semanticResults {
 		resultMap[mem.ID.String()] = mem
 	}
-	
+
 	// Convert back to slice
 	combined := make([]*memory.Memory, 0, len(resultMap))
 	for _, mem := range resultMap {
 		combined = append(combined, mem)
 	}
-	
+
 	return combined
 }
 

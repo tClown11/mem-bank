@@ -26,16 +26,16 @@ type Service struct {
 type Config struct {
 	// Maximum text length to process
 	MaxTextLength int `mapstructure:"max_text_length"`
-	
+
 	// Whether to enable caching
 	CacheEnabled bool `mapstructure:"cache_enabled"`
-	
+
 	// Cache TTL in minutes
 	CacheTTLMinutes int `mapstructure:"cache_ttl_minutes"`
-	
+
 	// Batch size for processing multiple texts
 	BatchSize int `mapstructure:"batch_size"`
-	
+
 	// Content preprocessing options
 	PreprocessingConfig PreprocessingConfig `mapstructure:"preprocessing"`
 }
@@ -44,16 +44,16 @@ type Config struct {
 type PreprocessingConfig struct {
 	// Whether to normalize whitespace
 	NormalizeWhitespace bool `mapstructure:"normalize_whitespace"`
-	
+
 	// Whether to convert to lowercase
 	ToLowercase bool `mapstructure:"to_lowercase"`
-	
+
 	// Whether to remove extra punctuation
 	RemoveExtraPunctuation bool `mapstructure:"remove_extra_punctuation"`
-	
+
 	// Maximum chunk size for long texts
 	ChunkSize int `mapstructure:"chunk_size"`
-	
+
 	// Overlap between chunks
 	ChunkOverlap int `mapstructure:"chunk_overlap"`
 }
@@ -105,11 +105,11 @@ func (s *Service) GenerateEmbedding(ctx context.Context, text string) (*Embeddin
 	if err != nil {
 		return nil, err
 	}
-	
+
 	if len(results.Results) == 0 {
 		return nil, fmt.Errorf("no embedding generated")
 	}
-	
+
 	return &results.Results[0], nil
 }
 
@@ -132,20 +132,20 @@ func (s *Service) GenerateEmbeddings(ctx context.Context, texts []string) (*Batc
 	if s.config.CacheEnabled && s.cache != nil {
 		cachedResults, uncachedTexts, uncachedIndices := s.checkCache(ctx, processedTexts)
 		results = append(results, cachedResults...)
-		
+
 		// Generate embeddings for uncached texts
 		if len(uncachedTexts) > 0 {
 			generatedResults, usage, err := s.generateUncachedEmbeddings(ctx, uncachedTexts)
 			if err != nil {
 				return nil, err
 			}
-			
+
 			totalUsage.PromptTokens += usage.PromptTokens
 			totalUsage.TotalTokens += usage.TotalTokens
-			
+
 			// Cache new results
 			s.cacheResults(ctx, generatedResults)
-			
+
 			// Merge results in original order
 			results = s.mergeResults(results, generatedResults, uncachedIndices)
 		}
@@ -155,7 +155,7 @@ func (s *Service) GenerateEmbeddings(ctx context.Context, texts []string) (*Batc
 		if err != nil {
 			return nil, err
 		}
-		
+
 		results = generatedResults
 		totalUsage = usage
 	}
@@ -210,7 +210,7 @@ func (s *Service) checkCache(ctx context.Context, texts []string) ([]EmbeddingRe
 
 	for i, text := range texts {
 		cacheKey := s.getCacheKey(text)
-		
+
 		cachedData, err := s.cache.Get(ctx, cacheKey).Result()
 		if err == nil {
 			var result EmbeddingResult
@@ -220,7 +220,7 @@ func (s *Service) checkCache(ctx context.Context, texts []string) ([]EmbeddingRe
 				continue
 			}
 		}
-		
+
 		// Not cached or error unmarshalling
 		uncachedTexts = append(uncachedTexts, text)
 		uncachedIndices = append(uncachedIndices, i)
@@ -242,7 +242,7 @@ func (s *Service) generateUncachedEmbeddings(ctx context.Context, texts []string
 		}
 
 		batch := texts[i:end]
-		
+
 		req := &llm.EmbeddingRequest{
 			Input: batch,
 			Model: s.provider.GetDefaultModel(),
@@ -280,7 +280,7 @@ func (s *Service) cacheResults(ctx context.Context, results []EmbeddingResult) {
 
 	for _, result := range results {
 		cacheKey := s.getCacheKey(result.Text)
-		
+
 		data, err := json.Marshal(result)
 		if err != nil {
 			s.logger.WithError(err).Warn("Failed to marshal embedding result for cache")
@@ -300,7 +300,7 @@ func (s *Service) mergeResults(cachedResults []EmbeddingResult, generatedResults
 
 	cachedIdx := 0
 	generatedIdx := 0
-	
+
 	// Fill in the results array in the original order
 	for i := 0; i < totalCount; i++ {
 		// Check if this index was uncached
@@ -311,7 +311,7 @@ func (s *Service) mergeResults(cachedResults []EmbeddingResult, generatedResults
 				break
 			}
 		}
-		
+
 		if isUncached {
 			results[i] = generatedResults[generatedIdx]
 			generatedIdx++

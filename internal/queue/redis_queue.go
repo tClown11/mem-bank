@@ -208,7 +208,7 @@ func (q *RedisQueue) StartConsuming(ctx context.Context, concurrency int) error 
 func (q *RedisQueue) RegisterHandler(jobType string, handler JobHandler) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	
+
 	q.handlers[jobType] = handler
 	q.logger.WithFields(map[string]interface{}{
 		"job_type": jobType,
@@ -256,7 +256,7 @@ func (q *RedisQueue) worker(ctx context.Context, workerID int) {
 // processNextJob processes the next available job
 func (q *RedisQueue) processNextJob(ctx context.Context, workerLogger logger.Logger) {
 	queueKey := q.getQueueKey()
-	
+
 	// Pop the highest priority job (highest score)
 	redisResult, err := q.client.ZPopMax(ctx, queueKey, 1).Result()
 	if err != nil {
@@ -328,24 +328,38 @@ func (q *RedisQueue) handleJobFailure(ctx context.Context, job *Job, jobErr erro
 	if job.Retries < job.MaxRetries {
 		// Retry the job with exponential backoff
 		delay := time.Duration(job.Retries) * q.config.RetryDelay
-		
+
 		jobLogger.WithFields(map[string]interface{}{
 			"retry_in": delay,
 			"retries":  job.Retries,
 		}).Warn("Job failed, will retry")
 
-		// Re-enqueue job with delay
+		// Re-enqueue job with delay using proper context handling
+		q.wg.Add(1)
 		go func() {
-			time.Sleep(delay)
-			if err := q.Enqueue(ctx, job); err != nil {
-				jobLogger.WithError(err).Error("Failed to re-enqueue job for retry")
+			defer q.wg.Done()
+
+			timer := time.NewTimer(delay)
+			defer timer.Stop()
+
+			select {
+			case <-timer.C:
+				if err := q.Enqueue(ctx, job); err != nil {
+					jobLogger.WithError(err).Error("Failed to re-enqueue job for retry")
+				}
+			case <-ctx.Done():
+				jobLogger.Info("Context cancelled, skipping job retry")
+				return
+			case <-q.stopChan:
+				jobLogger.Info("Queue stopped, skipping job retry")
+				return
 			}
 		}()
 	} else {
 		// Maximum retries exceeded
 		now := time.Now()
 		job.FailedAt = &now
-		
+
 		result := &JobResult{
 			JobID:     job.ID,
 			Status:    JobStatusFailed,
@@ -353,7 +367,7 @@ func (q *RedisQueue) handleJobFailure(ctx context.Context, job *Job, jobErr erro
 			Duration:  0,
 			CreatedAt: now,
 		}
-		
+
 		q.storeJobResult(ctx, result, jobLogger)
 		jobLogger.Error("Job failed permanently after max retries")
 	}

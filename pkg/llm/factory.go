@@ -33,6 +33,8 @@ func (f *ProviderFactory) CreateProvider(name string) (Provider, error) {
 	switch name {
 	case "openai":
 		return NewOpenAIProvider(config), nil
+	case "ollama":
+		return NewOllamaProvider(config), nil
 	default:
 		return nil, fmt.Errorf("unsupported provider: %s", name)
 	}
@@ -45,22 +47,4 @@ func (f *ProviderFactory) GetRegisteredProviders() []string {
 		providers = append(providers, name)
 	}
 	return providers
-}
-
-// DefaultFactory is a global instance for convenience
-var DefaultFactory = NewProviderFactory()
-
-// RegisterProvider registers a provider configuration with the default factory
-func RegisterProvider(name string, config *Config) {
-	DefaultFactory.RegisterProvider(name, config)
-}
-
-// CreateProvider creates a provider instance using the default factory
-func CreateProvider(name string) (Provider, error) {
-	return DefaultFactory.CreateProvider(name)
-}
-
-// GetRegisteredProviders returns registered providers from the default factory
-func GetRegisteredProviders() []string {
-	return DefaultFactory.GetRegisteredProviders()
 }

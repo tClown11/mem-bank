@@ -51,17 +51,12 @@ func TestAIMemoryIntegration(t *testing.T) {
 	}
 
 	// Setup Redis
-	redisClient := redis.NewClient(&redis.Options{
+	redisClient, err := database.NewRedisClientWithOptions(&redis.Options{
 		Addr: getEnv("TEST_REDIS_ADDR", "localhost:6379"),
 		DB:   1, // Use different DB for testing
-	})
-
-	// Test Redis connection
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-
-	if err := redisClient.Ping(ctx).Err(); err != nil {
-		t.Skip("Redis not available, skipping integration test")
+	}, time.Second)
+	if err != nil {
+		t.Skip("Redis not available, skipping integration test:", err)
 	}
 
 	// Clean up test data
@@ -216,9 +211,9 @@ func TestAIMemoryIntegration(t *testing.T) {
 			foundAI := false
 			for _, result := range results {
 				content := strings.ToLower(result.Content)
-				if strings.Contains(content, "machine learning") || 
-				   strings.Contains(content, "deep learning") ||
-				   strings.Contains(content, "ai") {
+				if strings.Contains(content, "machine learning") ||
+					strings.Contains(content, "deep learning") ||
+					strings.Contains(content, "ai") {
 					foundAI = true
 					break
 				}
@@ -264,7 +259,7 @@ func TestAIMemoryIntegration(t *testing.T) {
 			embeddingsEqual := true
 			if len(originalEmbedding) == len(updatedMemory.Embedding) {
 				for i := range originalEmbedding {
-					if abs(originalEmbedding[i] - updatedMemory.Embedding[i]) > 0.001 {
+					if abs(originalEmbedding[i]-updatedMemory.Embedding[i]) > 0.001 {
 						embeddingsEqual = false
 						break
 					}
@@ -291,4 +286,3 @@ func abs(x float32) float32 {
 	}
 	return x
 }
-

@@ -14,10 +14,10 @@ import (
 
 // QdrantRepository implements memory.Repository using Qdrant vector database
 type QdrantRepository struct {
-	client          *qdrant.Client
-	collectionName  string
-	vectorSize      uint64
-	postgresRepo    memory.Repository // Fallback for metadata storage
+	client         *qdrant.Client
+	collectionName string
+	vectorSize     uint64
+	postgresRepo   memory.Repository // Fallback for metadata storage
 }
 
 // QdrantConfig holds Qdrant configuration
@@ -51,11 +51,11 @@ func NewQdrantRepository(config QdrantConfig, postgresRepo memory.Repository) (*
 		Host: config.Host,
 		Port: config.Port,
 	}
-	
+
 	if config.UseHTTPS {
 		clientConfig.UseTLS = true
 	}
-	
+
 	if config.APIKey != "" {
 		clientConfig.APIKey = config.APIKey
 	}
@@ -64,12 +64,12 @@ func NewQdrantRepository(config QdrantConfig, postgresRepo memory.Repository) (*
 	if err != nil {
 		return nil, fmt.Errorf("creating Qdrant client: %w", err)
 	}
-	
+
 	repo := &QdrantRepository{
-		client:          client,
-		collectionName:  config.CollectionName,
-		vectorSize:      uint64(config.VectorSize),
-		postgresRepo:    postgresRepo,
+		client:         client,
+		collectionName: config.CollectionName,
+		vectorSize:     uint64(config.VectorSize),
+		postgresRepo:   postgresRepo,
 	}
 
 	// Initialize collection if it doesn't exist
@@ -331,6 +331,198 @@ func (r *QdrantRepository) deleteVector(ctx context.Context, id memory.ID) error
 	return nil
 }
 
+// SearchSimilarWithScores finds similar memories with similarity scores
+func (r *QdrantRepository) SearchSimilarWithScores(ctx context.Context, embedding []float32, userID user.ID, limit int, threshold float64) ([]*memory.MemoryWithScore, error) {
+	// First delegate to PostgreSQL implementation for now
+	return r.postgresRepo.SearchSimilarWithScores(ctx, embedding, userID, limit, threshold)
+}
+
+// SearchSimilarByMemory finds memories similar to a given memory
+func (r *QdrantRepository) SearchSimilarByMemory(ctx context.Context, memoryID memory.ID, userID user.ID, limit int, threshold float64) ([]*memory.Memory, error) {
+	// First delegate to PostgreSQL implementation for now
+	return r.postgresRepo.SearchSimilarByMemory(ctx, memoryID, userID, limit, threshold)
+}
+
+// BatchStore creates multiple memories in a single batch operation
+func (r *QdrantRepository) BatchStore(ctx context.Context, memories []*memory.Memory) error {
+	if len(memories) == 0 {
+		return nil
+	}
+
+	// Store in PostgreSQL first
+	if err := r.postgresRepo.BatchStore(ctx, memories); err != nil {
+		return err
+	}
+
+	// Then batch upsert to Qdrant for memories with embeddings
+	points := make([]*qdrant.PointStruct, 0)
+	for _, mem := range memories {
+		if len(mem.Embedding) > 0 {
+			payload := qdrant.NewValueMap(map[string]any{
+				"memory_id":   mem.ID.String(),
+				"user_id":     mem.UserID.String(),
+				"content":     mem.Content,
+				"importance":  int64(mem.Importance),
+				"memory_type": mem.MemoryType,
+				"created_at":  mem.CreatedAt.Format(time.RFC3339),
+			})
+
+			point := &qdrant.PointStruct{
+				Id:      qdrant.NewIDUUID(mem.ID.String()),
+				Vectors: qdrant.NewVectors(mem.Embedding...),
+				Payload: payload,
+			}
+			points = append(points, point)
+		}
+	}
+
+	if len(points) > 0 {
+		upsertRequest := &qdrant.UpsertPoints{
+			CollectionName: r.collectionName,
+			Points:         points,
+		}
+
+		_, err := r.client.Upsert(ctx, upsertRequest)
+		if err != nil {
+			return fmt.Errorf("batch upserting vectors: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// BatchUpdate updates multiple memories in a single batch operation
+func (r *QdrantRepository) BatchUpdate(ctx context.Context, memories []*memory.Memory) error {
+	if len(memories) == 0 {
+		return nil
+	}
+
+	// Update in PostgreSQL first
+	if err := r.postgresRepo.BatchUpdate(ctx, memories); err != nil {
+		return err
+	}
+
+	// Then batch upsert to Qdrant for memories with embeddings
+	points := make([]*qdrant.PointStruct, 0)
+	for _, mem := range memories {
+		if len(mem.Embedding) > 0 {
+			payload := qdrant.NewValueMap(map[string]any{
+				"memory_id":   mem.ID.String(),
+				"user_id":     mem.UserID.String(),
+				"content":     mem.Content,
+				"importance":  int64(mem.Importance),
+				"memory_type": mem.MemoryType,
+				"created_at":  mem.CreatedAt.Format(time.RFC3339),
+			})
+
+			point := &qdrant.PointStruct{
+				Id:      qdrant.NewIDUUID(mem.ID.String()),
+				Vectors: qdrant.NewVectors(mem.Embedding...),
+				Payload: payload,
+			}
+			points = append(points, point)
+		}
+	}
+
+	if len(points) > 0 {
+		upsertRequest := &qdrant.UpsertPoints{
+			CollectionName: r.collectionName,
+			Points:         points,
+		}
+
+		_, err := r.client.Upsert(ctx, upsertRequest)
+		if err != nil {
+			return fmt.Errorf("batch updating vectors: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// BatchDelete removes multiple memories by their IDs in a single batch operation
+func (r *QdrantRepository) BatchDelete(ctx context.Context, ids []memory.ID) error {
+	if len(ids) == 0 {
+		return nil
+	}
+
+	// Delete from PostgreSQL first
+	if err := r.postgresRepo.BatchDelete(ctx, ids); err != nil {
+		return err
+	}
+
+	// Then delete from Qdrant
+	qdrantIDs := make([]*qdrant.PointId, len(ids))
+	for i, id := range ids {
+		qdrantIDs[i] = qdrant.NewIDUUID(id.String())
+	}
+
+	deleteRequest := &qdrant.DeletePoints{
+		CollectionName: r.collectionName,
+		Points:         qdrant.NewPointsSelector(qdrantIDs...),
+	}
+
+	_, err := r.client.Delete(ctx, deleteRequest)
+	if err != nil {
+		return fmt.Errorf("batch deleting vectors: %w", err)
+	}
+
+	return nil
+}
+
+// BatchUpdateEmbeddings updates embeddings for multiple memories efficiently
+func (r *QdrantRepository) BatchUpdateEmbeddings(ctx context.Context, updates []memory.EmbeddingUpdate) error {
+	if len(updates) == 0 {
+		return nil
+	}
+
+	// Update embeddings in PostgreSQL first
+	if err := r.postgresRepo.BatchUpdateEmbeddings(ctx, updates); err != nil {
+		return err
+	}
+
+	// Then update vectors in Qdrant
+	points := make([]*qdrant.PointStruct, 0, len(updates))
+	for _, update := range updates {
+		if len(update.Embedding) > 0 {
+			// We need to get the memory metadata from PostgreSQL for the payload
+			mem, err := r.postgresRepo.FindByID(ctx, update.ID)
+			if err != nil {
+				continue // Skip if memory not found
+			}
+
+			payload := qdrant.NewValueMap(map[string]any{
+				"memory_id":   mem.ID.String(),
+				"user_id":     mem.UserID.String(),
+				"content":     mem.Content,
+				"importance":  int64(mem.Importance),
+				"memory_type": mem.MemoryType,
+				"created_at":  mem.CreatedAt.Format(time.RFC3339),
+			})
+
+			point := &qdrant.PointStruct{
+				Id:      qdrant.NewIDUUID(update.ID.String()),
+				Vectors: qdrant.NewVectors(update.Embedding...),
+				Payload: payload,
+			}
+			points = append(points, point)
+		}
+	}
+
+	if len(points) > 0 {
+		upsertRequest := &qdrant.UpsertPoints{
+			CollectionName: r.collectionName,
+			Points:         points,
+		}
+
+		_, err := r.client.Upsert(ctx, upsertRequest)
+		if err != nil {
+			return fmt.Errorf("batch updating embeddings in Qdrant: %w", err)
+		}
+	}
+
+	return nil
+}
+
 // GetQdrantCollectionInfo returns information about the Qdrant collection
 func (r *QdrantRepository) GetQdrantCollectionInfo(ctx context.Context) (map[string]interface{}, error) {
 	info, err := r.client.GetCollectionInfo(ctx, r.collectionName)
@@ -339,10 +531,10 @@ func (r *QdrantRepository) GetQdrantCollectionInfo(ctx context.Context) (map[str
 	}
 
 	return map[string]interface{}{
-		"collection_name":  r.collectionName,
-		"vectors_count":    info.VectorsCount,
-		"indexed_vectors":  info.IndexedVectorsCount,
-		"points_count":     info.PointsCount,
+		"collection_name": r.collectionName,
+		"vectors_count":   info.VectorsCount,
+		"indexed_vectors": info.IndexedVectorsCount,
+		"points_count":    info.PointsCount,
 		"status":          info.Status.String(),
 	}, nil
 }

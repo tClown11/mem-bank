@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"mem_bank/configs"
+	"mem_bank/pkg/database"
 	"mem_bank/pkg/llm"
 	"mem_bank/pkg/logger"
 )
@@ -86,10 +87,21 @@ func TestService_GenerateEmbedding(t *testing.T) {
 	})
 
 	t.Run("empty_text", func(t *testing.T) {
+		// Setup expectation for empty text processing
+		provider.On("GetDefaultModel").Return("test-model")
+		provider.On("GenerateEmbeddings", mock.Anything, mock.MatchedBy(func(req *llm.EmbeddingRequest) bool {
+			return len(req.Input) == 1 && req.Input[0] == ""
+		})).Return(&llm.EmbeddingResponse{
+			Embeddings: [][]float32{},
+			Model:      "test-model",
+		}, nil)
+
 		results, err := service.GenerateEmbeddings(context.Background(), []string{""})
 
 		require.NoError(t, err)
 		assert.Empty(t, results.Results)
+
+		provider.AssertExpectations(t)
 	})
 }
 
@@ -198,17 +210,12 @@ func TestService_PreprocessText(t *testing.T) {
 
 func TestService_WithCache(t *testing.T) {
 	// Skip if Redis is not available
-	redisClient := redis.NewClient(&redis.Options{
+	redisClient, err := database.NewRedisClientWithOptions(&redis.Options{
 		Addr: "localhost:6379",
 		DB:   1, // Use different DB for testing
-	})
-
-	// Test Redis connection
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-
-	if err := redisClient.Ping(ctx).Err(); err != nil {
-		t.Skip("Redis not available, skipping cache tests")
+	}, time.Second)
+	if err != nil {
+		t.Skip("Redis not available, skipping cache tests:", err)
 	}
 
 	// Clean up test data
@@ -248,16 +255,12 @@ func TestService_WithCache(t *testing.T) {
 
 func TestService_ClearCache(t *testing.T) {
 	// Skip if Redis is not available
-	redisClient := redis.NewClient(&redis.Options{
+	redisClient, err := database.NewRedisClientWithOptions(&redis.Options{
 		Addr: "localhost:6379",
 		DB:   1, // Use different DB for testing
-	})
-
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-
-	if err := redisClient.Ping(ctx).Err(); err != nil {
-		t.Skip("Redis not available, skipping cache tests")
+	}, time.Second)
+	if err != nil {
+		t.Skip("Redis not available, skipping cache tests:", err)
 	}
 
 	// Clean up test data
@@ -280,7 +283,7 @@ func TestService_ClearCache(t *testing.T) {
 		Model:      "test-model",
 	}, nil)
 
-	_, err := service.GenerateEmbedding(context.Background(), "test content")
+	_, err = service.GenerateEmbedding(context.Background(), "test content")
 	require.NoError(t, err)
 
 	// Clear cache
